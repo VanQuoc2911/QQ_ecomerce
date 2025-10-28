@@ -1,0 +1,86 @@
+import axios, {
+  AxiosError,
+  type AxiosInstance,
+  type AxiosRequestConfig,
+  type InternalAxiosRequestConfig,
+} from "axios";
+
+const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
+
+export const api: AxiosInstance = axios.create({
+  baseURL: API_BASE,
+  headers: { "Content-Type": "application/json" },
+  withCredentials: true, // gửi cookie
+});
+
+const getAccessToken = (): string | null => localStorage.getItem("accessToken");
+
+api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const token = getAccessToken();
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// ===== Refresh Token Queue System =====
+let isRefreshing = false;
+let failedQueue: {
+  resolve: (value?: unknown) => void;
+  reject: (err?: unknown) => void;
+  config: AxiosRequestConfig;
+}[] = [];
+
+const processQueue = (error: Error | null, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) prom.reject(error);
+    else {
+      prom.config.headers = prom.config.headers || {};
+      if (token) prom.config.headers.Authorization = `Bearer ${token}`;
+      prom.resolve();
+    }
+  });
+  failedQueue = [];
+};
+
+api.interceptors.response.use(
+  (res) => res,
+  async (error: AxiosError) => {
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject, config: originalRequest });
+        }).then(() => api(originalRequest));
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const resp = await axios.post(`${API_BASE}/auth/refresh`, {}, { withCredentials: true });
+        const newToken = resp.data?.token;
+        if (newToken) {
+          localStorage.setItem("accessToken", newToken);
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          processQueue(null, newToken);
+          return api(originalRequest);
+        }
+        processQueue(new Error("Không có token mới"), null);
+        return Promise.reject(error);
+      } catch (refreshErr) {
+        processQueue(refreshErr as Error, null);
+        localStorage.removeItem("accessToken");
+        return Promise.reject(refreshErr);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default api;
