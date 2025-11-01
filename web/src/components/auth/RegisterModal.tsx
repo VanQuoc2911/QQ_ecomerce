@@ -18,7 +18,7 @@ import {
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import Role from "../../types/User";
+import type { Role } from "../../types/User";
 import { getRoleRedirectPath } from "../../utils/roleRedirect";
 
 interface Props { open: boolean; onClose: () => void; }
@@ -52,7 +52,7 @@ const RegisterModal: React.FC<Props> = ({ open, onClose }) => {
 
       const newUser = await register(email, password, name, role);
       onClose();
-      navigate(getRoleRedirectPath(newUser.role));
+      navigate(getRoleRedirectPath(newUser.role as Role ?? "user"));
     } catch (err) {
       setError((err as Error).message || "Đăng ký thất bại");
     } finally {

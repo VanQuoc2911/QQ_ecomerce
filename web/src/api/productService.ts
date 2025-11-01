@@ -1,39 +1,43 @@
-import type { Product, ProductResponse } from "../types/Product";
-import { api } from "./axios";
+import api from "./axios";
+
+// ✅ Định nghĩa kiểu dữ liệu sản phẩm trả về từ API
+export interface ApiProduct {
+  _id: string;
+  title: string;
+  description: string;
+  price: number;
+  stock: number;
+  images: string[];
+  sellerId: string;
+  categories: string[];
+  status: string;
+  createdAt: string;
+  Rating: number;
+  __v: number;
+}
+
+// ✅ Định nghĩa kiểu dữ liệu response API
+export interface ProductResponse {
+  items: ApiProduct[];
+  total: number;
+  page: number;
+  limit: number;
+}
 
 export const productService = {
+  // ✅ Lấy danh sách sản phẩm
   getProducts: async (params?: {
     page?: number;
     limit?: number;
-    q?: string;
-    status?: "pending" | "approved" | "rejected" | "draft";
+    status?: string;
   }): Promise<ProductResponse> => {
-    const response = await api.get<ProductResponse>("/api/products", { params });
-    return response.data;
+    const { data } = await api.get("/api/products", { params });
+    return data;
   },
 
-  getProductById: async (id: string | number): Promise<Product> => {
-    const response = await api.get<Product>(`/api/products/${id}`);
-    return response.data;
-  },
-
-  createProduct: async (
-    productData: Omit<Product, "id" | "createdAt" | "updatedAt">
-  ): Promise<Product> => {
-    const response = await api.post<Product>("/api/products", productData);
-    return response.data;
-  },
-
-  updateProduct: async (
-    id: string | number,
-    productData: Partial<Product>
-  ): Promise<Product> => {
-    const response = await api.put<Product>(`/api/products/${id}`, productData);
-    return response.data;
-  },
-
-  deleteProduct: async (id: string | number): Promise<{ message: string }> => {
-    const response = await api.delete<{ message: string }>(`/api/products/${id}`);
-    return response.data;
+  // ✅ Lấy chi tiết sản phẩm theo ID
+  getProductById: async (id: string): Promise<ApiProduct> => {
+    const { data } = await api.get(`/api/products/${id}`);
+    return data;
   },
 };

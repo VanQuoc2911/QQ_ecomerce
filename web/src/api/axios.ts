@@ -10,10 +10,10 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:4000";
 export const api: AxiosInstance = axios.create({
   baseURL: API_BASE,
   headers: { "Content-Type": "application/json" },
-  withCredentials: true, // gửi cookie
 });
 
 const getAccessToken = (): string | null => localStorage.getItem("accessToken");
+const getRefreshToken = (): string | null => localStorage.getItem("refreshToken");
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = getAccessToken();
@@ -50,6 +50,12 @@ api.interceptors.response.use(
     const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      const refreshToken = getRefreshToken();
+      if (!refreshToken) {
+        localStorage.removeItem("accessToken");
+        return Promise.reject(error);
+      }
+
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject, config: originalRequest });
@@ -60,7 +66,11 @@ api.interceptors.response.use(
       isRefreshing = true;
 
       try {
-        const resp = await axios.post(`${API_BASE}/auth/refresh`, {}, { withCredentials: true });
+        const resp = await axios.post(
+          `${API_BASE}/auth/refresh`,
+          { refreshToken },
+          { headers: { "Content-Type": "application/json" } }
+        );
         const newToken = resp.data?.token;
         if (newToken) {
           localStorage.setItem("accessToken", newToken);
@@ -74,11 +84,13 @@ api.interceptors.response.use(
       } catch (refreshErr) {
         processQueue(refreshErr as Error, null);
         localStorage.removeItem("accessToken");
+        localStorage.removeItem("refreshToken");
         return Promise.reject(refreshErr);
       } finally {
         isRefreshing = false;
       }
     }
+
     return Promise.reject(error);
   }
 );

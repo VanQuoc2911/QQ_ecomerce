@@ -1,135 +1,119 @@
-import { Alert, Box, Button, CircularProgress, Container, Rating, Typography } from "@mui/material";
+import {
+  Box,
+  Button,
+  CircularProgress,
+  Container,
+  Rating,
+  Typography,
+} from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import type { ApiProduct } from "../../api/productService";
 import { productService } from "../../api/productService";
-import { useCart } from "../../context/CartContext";
-import { useApi } from "../../hooks/useApi";
-import type { ProductCard as ProductCardType } from "../../types/ProductCard";
 
 export default function ProductDetail() {
-  const { id } = useParams();
-  const { addToCart } = useCart();
-  const [selectedImage, setSelectedImage] = useState<string>("");
+  const { id } = useParams<{ id: string }>();
+  const [product, setProduct] = useState<ApiProduct | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const { data: backendProduct, loading, error } = useApi(
-    () => productService.getProductById(id!),
-    [id]
-  );
+useEffect(() => {
+  if (id) {
+    productService
+      .getProductById(id)
+      .then(setProduct)
+      .catch((err) => {
+        console.error("❌ Lỗi khi tải sản phẩm:", err);
+      })
+      .finally(() => setLoading(false));
+  }
+}, [id]);
 
   if (loading) {
     return (
-      <Container sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+      <Container sx={{ py: 8, textAlign: "center" }}>
         <CircularProgress />
+        <Typography mt={2}>Đang tải chi tiết sản phẩm...</Typography>
       </Container>
     );
   }
 
-  if (error || !backendProduct) {
+  if (!product) {
     return (
-      <Container sx={{ py: 4 }}>
-        <Alert severity="error">
-          {error || "Không tìm thấy sản phẩm"}
-        </Alert>
+      <Container sx={{ py: 8 }}>
+        <Typography variant="h6" color="text.secondary" textAlign="center">
+          Không tìm thấy sản phẩm.
+        </Typography>
       </Container>
     );
-  }
-
-  const product: ProductCardType = {
-    id: String(backendProduct.id),
-    name: backendProduct.title,
-    price: backendProduct.price,
-    images: backendProduct.image && backendProduct.image.trim() !== '' ? [backendProduct.image] : [],
-    category: "",
-    description: backendProduct.description,
-    stock: backendProduct.stock,
-    rating: 0,
-  };
-
-  if (!selectedImage && product.images.length > 0) {
-    setSelectedImage(product.images[0]);
   }
 
   return (
     <Container sx={{ py: 6 }}>
-      <Grid container spacing={6}>
-        {/* Ảnh sản phẩm */}
+      <Grid container spacing={4}>
         <Grid item xs={12} md={6}>
-          <Box className="flex flex-col items-center">
-            {product.images.length > 0 ? (
-              <>
-                <Box sx={{ borderRadius: 3, overflow: "hidden", boxShadow: 3, mb: 2 }}>
-                  <img
-                    src={selectedImage}
-                    alt={product.name}
-                    className="w-full object-cover rounded-xl transition-transform duration-300 hover:scale-105"
-                  />
-                </Box>
+        <Box
+          component="img"
+          src={
+            product.images?.[0]?.startsWith("http")
+              ? product.images[0]
+              : `https://via.placeholder.com/${product.images?.[0] || "600x400?text=No+Image"}`
+          }
+          alt={product.title}
+          sx={{
+            width: "100%",
+            borderRadius: 2,
+            objectFit: "cover",
+            boxShadow: 4,
+          }}
+        />
 
-                {/* Gallery */}
-                <Box className="flex gap-2 justify-center flex-wrap">
-                  {product.images.map((img, i) => (
-                    <img
-                      key={i}
-                      src={img}
-                      alt={`${product.name} ${i + 1}`}
-                      className={`w-20 h-20 object-cover rounded-md cursor-pointer border-2 transition-all duration-200 ${
-                        selectedImage === img
-                          ? "border-blue-500"
-                          : "border-transparent hover:border-gray-300"
-                      }`}
-                      onClick={() => setSelectedImage(img)}
-                    />
-                  ))}
-                </Box>
-              </>
-            ) : (
-              <Box
-                sx={{
-                  width: "100%",
-                  height: 400,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: "#f5f5f5",
-                  color: "#999",
-                  borderRadius: 3,
-                }}
-              >
-                <Typography variant="h6">Không có hình ảnh</Typography>
-              </Box>
-            )}
-          </Box>
         </Grid>
 
-        {/* Thông tin sản phẩm */}
         <Grid item xs={12} md={6}>
-          <Typography variant="h4" fontWeight="bold">
-            {product.name}
+          <Typography variant="h4" fontWeight={700} gutterBottom>
+            {product.title}
           </Typography>
 
-          <Rating value={product.rating} precision={0.5} readOnly sx={{ mt: 1 }} />
-          <Typography variant="h5" color="primary" fontWeight="bold" sx={{ mt: 2 }}>
-            {product.price.toLocaleString()}₫
-          </Typography>
+          <Rating
+            value={product.Rating || 4.5}
+            readOnly
+            precision={0.5}
+            sx={{ mb: 2 }}
+          />
 
-          <Typography variant="body1" sx={{ mt: 2, color: "text.secondary" }}>
+          <Typography
+            variant="body1"
+            color="text.secondary"
+            sx={{ mb: 3, whiteSpace: "pre-line" }}
+          >
             {product.description}
           </Typography>
 
-          <Box sx={{ mt: 4 }}>
-            <Button
-              variant="contained"
-              color="primary"
-              sx={{ mr: 2, textTransform: "none", fontWeight: "bold", px: 3, py: 1 }}
-              onClick={() => addToCart(product)}
-            >
-              Thêm vào giỏ
-            </Button>
-            <Button variant="outlined" sx={{ textTransform: "none", fontWeight: "bold" }}>
-              Mua ngay
-            </Button>
-          </Box>
+          <Typography
+            variant="h5"
+            color="primary.main"
+            fontWeight={700}
+            sx={{ mb: 3 }}
+          >
+            {product.price.toLocaleString("vi-VN")}₫
+          </Typography>
+
+          <Button
+            variant="contained"
+            sx={{
+              background: "linear-gradient(90deg, #007BFF 0%, #00C6FF 100%)",
+              borderRadius: 2,
+              px: 4,
+              py: 1.5,
+              fontWeight: 600,
+              "&:hover": {
+                background: "linear-gradient(90deg, #0062E6 0%, #33AEFF 100%)",
+              },
+            }}
+          >
+            Thêm vào giỏ hàng
+          </Button>
         </Grid>
       </Grid>
     </Container>

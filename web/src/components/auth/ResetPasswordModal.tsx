@@ -1,18 +1,19 @@
 // src/components/auth/ResetPasswordModal.tsx
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import {
-    Alert,
-    Box,
-    Button,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    IconButton,
-    InputAdornment,
-    TextField,
-    Typography
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  IconButton,
+  InputAdornment,
+  TextField,
+  Typography
 } from "@mui/material";
+import { AxiosError } from "axios"; // ✅ import kiểu lỗi Axios
 import { useState } from "react";
 import { api } from "../../api/axios";
 
@@ -22,57 +23,59 @@ interface ResetPasswordModalProps {
   token: string;
 }
 
+interface ErrorResponse {
+  message?: string;
+}
+
 export default function ResetPasswordModal({ open, onClose, token }: ResetPasswordModalProps) {
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!password.trim()) {
-      setError('Vui lòng nhập mật khẩu mới');
+      setError("Vui lòng nhập mật khẩu mới");
       return;
     }
-    
+
     if (password.length < 6) {
-      setError('Mật khẩu phải có ít nhất 6 ký tự');
+      setError("Mật khẩu phải có ít nhất 6 ký tự");
       return;
     }
-    
+
     if (password !== confirmPassword) {
-      setError('Mật khẩu xác nhận không khớp');
+      setError("Mật khẩu xác nhận không khớp");
       return;
     }
 
     setLoading(true);
-    setError('');
-    setMessage('');
+    setError("");
+    setMessage("");
 
     try {
-      await api.post('/auth/reset-password', { 
-        token, 
-        password 
-      });
-      setMessage('Mật khẩu đã được đặt lại thành công. Bạn có thể đăng nhập với mật khẩu mới.');
-      setPassword('');
-      setConfirmPassword('');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Có lỗi xảy ra. Vui lòng thử lại.');
+      await api.post("/auth/reset-password", { token, password });
+      setMessage("Mật khẩu đã được đặt lại thành công. Bạn có thể đăng nhập với mật khẩu mới.");
+      setPassword("");
+      setConfirmPassword("");
+    } catch (error) {
+      const err = error as AxiosError<ErrorResponse>;
+      setError(err.response?.data?.message || "Có lỗi xảy ra. Vui lòng thử lại.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleClose = () => {
-    setPassword('');
-    setConfirmPassword('');
-    setError('');
-    setMessage('');
+    setPassword("");
+    setConfirmPassword("");
+    setError("");
+    setMessage("");
     onClose();
   };
 
@@ -84,23 +87,14 @@ export default function ResetPasswordModal({ open, onClose, token }: ResetPasswo
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Nhập mật khẩu mới của bạn.
           </Typography>
-          
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-          
-          {message && (
-            <Alert severity="success" sx={{ mb: 2 }}>
-              {message}
-            </Alert>
-          )}
+
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+          {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}
 
           <TextField
             fullWidth
             label="Mật khẩu mới"
-            type={showPassword ? 'text' : 'password'}
+            type={showPassword ? "text" : "password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
@@ -109,10 +103,7 @@ export default function ResetPasswordModal({ open, onClose, token }: ResetPasswo
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton
-                    onClick={() => setShowPassword(!showPassword)}
-                    edge="end"
-                  >
+                  <IconButton onClick={() => setShowPassword(!showPassword)} edge="end">
                     {showPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
                 </InputAdornment>
@@ -123,7 +114,7 @@ export default function ResetPasswordModal({ open, onClose, token }: ResetPasswo
           <TextField
             fullWidth
             label="Xác nhận mật khẩu"
-            type={showConfirmPassword ? 'text' : 'password'}
+            type={showConfirmPassword ? "text" : "password"}
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             disabled={loading}
@@ -132,10 +123,7 @@ export default function ResetPasswordModal({ open, onClose, token }: ResetPasswo
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
-                  <IconButton
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    edge="end"
-                  >
+                  <IconButton onClick={() => setShowConfirmPassword(!showConfirmPassword)} edge="end">
                     {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
                   </IconButton>
                 </InputAdornment>
@@ -144,16 +132,17 @@ export default function ResetPasswordModal({ open, onClose, token }: ResetPasswo
           />
         </Box>
       </DialogContent>
+
       <DialogActions>
         <Button onClick={handleClose} disabled={loading}>
           Hủy
         </Button>
-        <Button 
-          onClick={handleSubmit} 
-          variant="contained" 
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
           disabled={loading || !password.trim() || !confirmPassword.trim()}
         >
-          {loading ? 'Đang xử lý...' : 'Đặt lại mật khẩu'}
+          {loading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
         </Button>
       </DialogActions>
     </Dialog>

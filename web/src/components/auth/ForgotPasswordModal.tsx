@@ -1,15 +1,15 @@
-// src/components/auth/ForgotPasswordModal.tsx
 import {
-    Alert,
-    Box,
-    Button,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    TextField,
-    Typography
+  Alert,
+  Box,
+  Button,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  TextField,
+  Typography
 } from "@mui/material";
+import { AxiosError } from "axios"; // ✅ import AxiosError để typing lỗi
 import { useState } from "react";
 import { api } from "../../api/axios";
 
@@ -18,38 +18,45 @@ interface ForgotPasswordModalProps {
   onClose: () => void;
 }
 
+// ✅ định nghĩa kiểu dữ liệu mà API có thể trả về khi lỗi
+interface ErrorResponse {
+  message?: string;
+}
+
 export default function ForgotPasswordModal({ open, onClose }: ForgotPasswordModalProps) {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState('');
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!email.trim()) {
-      setError('Vui lòng nhập email');
+      setError("Vui lòng nhập email");
       return;
     }
 
     setLoading(true);
-    setError('');
-    setMessage('');
+    setError("");
+    setMessage("");
 
     try {
-      await api.post('/auth/forgot-password', { email });
-      setMessage('Email khôi phục mật khẩu đã được gửi. Vui lòng kiểm tra hộp thư của bạn.');
-      setEmail('');
-    } catch (err: any) {
-      setError(err.response?.data?.message || 'Có lỗi xảy ra. Vui lòng thử lại.');
+      await api.post("/auth/forgot-password", { email });
+      setMessage("Email khôi phục mật khẩu đã được gửi. Vui lòng kiểm tra hộp thư của bạn.");
+      setEmail("");
+    } catch (error) {
+      const err = error as AxiosError<ErrorResponse>; // ✅ xác định kiểu lỗi chính xác
+      setError(err.response?.data?.message || "Có lỗi xảy ra. Vui lòng thử lại.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleClose = () => {
-    setEmail('');
-    setError('');
-    setMessage('');
+    setEmail("");
+    setError("");
+    setMessage("");
     onClose();
   };
 
@@ -61,13 +68,13 @@ export default function ForgotPasswordModal({ open, onClose }: ForgotPasswordMod
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
             Nhập email của bạn để nhận liên kết khôi phục mật khẩu.
           </Typography>
-          
+
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
           )}
-          
+
           {message && (
             <Alert severity="success" sx={{ mb: 2 }}>
               {message}
@@ -90,12 +97,12 @@ export default function ForgotPasswordModal({ open, onClose }: ForgotPasswordMod
         <Button onClick={handleClose} disabled={loading}>
           Hủy
         </Button>
-        <Button 
-          onClick={handleSubmit} 
-          variant="contained" 
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
           disabled={loading || !email.trim()}
         >
-          {loading ? 'Đang gửi...' : 'Gửi email'}
+          {loading ? "Đang gửi..." : "Gửi email"}
         </Button>
       </DialogActions>
     </Dialog>
