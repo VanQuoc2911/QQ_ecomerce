@@ -1,33 +1,22 @@
+// src/types/Product.ts
 export interface Product {
-  id: number;
+  _id: string;
   title: string;
   description: string;
   price: number;
   stock: number;
-
-  sellerId: string | number;
-
-  sku?: string;
-  brand?: string;
-  category?: string;
-  specifications?: string;
-  tags?: string[];
-
-  image?: string;
-
-  status: "pending" | "approved" | "rejected" | "draft";
-  approvedAt?: string;
-  rejectionReason?: string;
-
-  createdAt?: string;
-  updatedAt?: string;
+  images: string[];
+  sellerId: string;
+  categories: string[];
+  status: string;
+  createdAt: string;
+  Rating: number;
+  __v: number;
 }
 
 export interface ProductResponse {
-  products: Product[];
+  items: Product[];
   total: number;
   page: number;
   limit: number;
-  currentPage: number;
-  totalPages: number;
 }

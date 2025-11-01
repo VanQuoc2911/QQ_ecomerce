@@ -128,3 +128,11 @@ export const requestSeller = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+export const getProfile = async (req, res) => {
+  try {
+    // Giả sử middleware verifyToken đã gắn thông tin user vào req.user
+    res.status(200).json(req.user);
+  } catch (err) {
+    res.status(500).json({ message: "Lỗi khi lấy thông tin người dùng" });
+  }
+};

@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import {
   createProduct,
+  getProductById,
   listProducts,
 } from "../controllers/productController.js";
 import { roleGuard, verifyToken } from "../middleware/authMiddleware.js";
@@ -17,5 +18,5 @@ router.post(
   upload.array("images", 6),
   createProduct
 );
-
+router.get("/:id", getProductById);
 export default router;
