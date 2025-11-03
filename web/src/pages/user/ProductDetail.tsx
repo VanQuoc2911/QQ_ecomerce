@@ -9,6 +9,7 @@ import {
 import Grid from "@mui/material/GridLegacy";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { cartService, type CartItem, type CartResponse } from "../../api/cartService";
 import type { ApiProduct } from "../../api/productService";
 import { productService } from "../../api/productService";
 
@@ -16,18 +17,83 @@ export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const [product, setProduct] = useState<ApiProduct | null>(null);
   const [loading, setLoading] = useState(true);
+  const [addingToCart, setAddingToCart] = useState(false);
 
-useEffect(() => {
-  if (id) {
+  useEffect(() => {
+    if (!id) return;
     productService
       .getProductById(id)
       .then(setProduct)
-      .catch((err) => {
-        console.error("❌ Lỗi khi tải sản phẩm:", err);
-      })
+      .catch((err) => console.error("❌ Lỗi khi tải sản phẩm:", err))
       .finally(() => setLoading(false));
-  }
-}, [id]);
+  }, [id]);
+
+  const animateFlyToCart = () => {
+    const productImg = document.querySelector(".product-image") as HTMLImageElement;
+    const cartIcon = document.querySelector(".cart-icon") as HTMLElement;
+    if (!productImg || !cartIcon) return;
+
+    const imgRect = productImg.getBoundingClientRect();
+    const cartRect = cartIcon.getBoundingClientRect();
+
+    const flyingImg = productImg.cloneNode(true) as HTMLImageElement;
+    flyingImg.style.position = "fixed";
+    flyingImg.style.left = imgRect.left + "px";
+    flyingImg.style.top = imgRect.top + "px";
+    flyingImg.style.width = imgRect.width + "px";
+    flyingImg.style.height = imgRect.height + "px";
+    flyingImg.style.borderRadius = "10px";
+    flyingImg.style.zIndex = "9999";
+    flyingImg.style.transition =
+      "all 0.8s cubic-bezier(0.25, 1, 0.5, 1)";
+    document.body.appendChild(flyingImg);
+
+    requestAnimationFrame(() => {
+      flyingImg.style.left = cartRect.left + "px";
+      flyingImg.style.top = cartRect.top + "px";
+      flyingImg.style.width = "40px";
+      flyingImg.style.height = "40px";
+      flyingImg.style.opacity = "0.5";
+      flyingImg.style.transform = "rotate(360deg)";
+    });
+
+    setTimeout(() => {
+      flyingImg.remove();
+      // 🔔 Làm icon rung nhẹ
+      const cart = document.querySelector(".cart-icon") as HTMLElement;
+      if (cart) {
+        cart.classList.add("cart-shake");
+        setTimeout(() => cart.classList.remove("cart-shake"), 500);
+      }
+    }, 800);
+  };
+
+  const handleAddToCart = async () => {
+    if (!product) return;
+
+    const item: CartItem = {
+      productId: product._id,
+      quantity: 1,
+    };
+
+    try {
+      setAddingToCart(true);
+      const updatedCart: CartResponse = await cartService.addToCart(item);
+      console.log("🛒 Cart updated:", updatedCart);
+
+      // 🔥 Cập nhật Navbar
+      window.dispatchEvent(new Event("cartUpdated"));
+
+      // ✨ Gọi hiệu ứng bay
+      animateFlyToCart();
+
+    } catch (err) {
+      console.error("❌ Lỗi khi thêm giỏ hàng:", err);
+      alert("❌ Thêm vào giỏ hàng thất bại. Vui lòng đăng nhập!");
+    } finally {
+      setAddingToCart(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -52,22 +118,22 @@ useEffect(() => {
     <Container sx={{ py: 6 }}>
       <Grid container spacing={4}>
         <Grid item xs={12} md={6}>
-        <Box
-          component="img"
-          src={
-            product.images?.[0]?.startsWith("http")
-              ? product.images[0]
-              : `https://via.placeholder.com/${product.images?.[0] || "600x400?text=No+Image"}`
-          }
-          alt={product.title}
-          sx={{
-            width: "100%",
-            borderRadius: 2,
-            objectFit: "cover",
-            boxShadow: 4,
-          }}
-        />
-
+          <Box
+            component="img"
+            className="product-image"
+            src={
+              product.images?.[0]?.startsWith("http")
+                ? product.images[0]
+                : `https://via.placeholder.com/${product.images?.[0] || "600x400?text=No+Image"}`
+            }
+            alt={product.title}
+            sx={{
+              width: "100%",
+              borderRadius: 2,
+              objectFit: "cover",
+              boxShadow: 4,
+            }}
+          />
         </Grid>
 
         <Grid item xs={12} md={6}>
@@ -101,6 +167,8 @@ useEffect(() => {
 
           <Button
             variant="contained"
+            disabled={addingToCart}
+            onClick={handleAddToCart}
             sx={{
               background: "linear-gradient(90deg, #007BFF 0%, #00C6FF 100%)",
               borderRadius: 2,
@@ -112,7 +180,7 @@ useEffect(() => {
               },
             }}
           >
-            Thêm vào giỏ hàng
+            {addingToCart ? "Đang thêm..." : "Thêm vào giỏ hàng"}
           </Button>
         </Grid>
       </Grid>

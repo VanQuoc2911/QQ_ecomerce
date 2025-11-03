@@ -9,7 +9,7 @@ export default function SellerRoutes() {
 
   return (
     <Routes>
-      <Route path="seller-dashboard" element={<SellerDashboard />} />
+      <Route path="Seller-dashboard" element={<SellerDashboard />} />
       {/* Thêm route seller khác ở đây */}
     </Routes>
   );

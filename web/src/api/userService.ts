@@ -1,4 +1,4 @@
-import type { User, UserResponse } from "../types/User";
+import type { User, UserProfile, UserResponse } from "../types/User";
 import { api } from "./axios";
 
 export const userService = {
@@ -26,4 +26,22 @@ export const userService = {
     const response = await api.delete(`/api/users/${id}`);
     return response.data;
   },
+  // Lấy profile của user đang đăng nhập
+  getProfile: async (): Promise<UserProfile> => {
+    const res = await api.get("/auth/profile");
+    return res.data;
+  },
+
+  // Cập nhật profile user (name, phone, address, avatar, shop info)
+  updateProfile: async (data: Partial<UserProfile>): Promise<UserProfile> => {
+    const res = await api.put("/auth/profile", data);
+    return res.data.user; // backend trả { message, user }
+  },
+
+  // Đổi mật khẩu
+  changePassword: async (oldPassword: string, newPassword: string) => {
+    const res = await api.put("/auth/profile/password", { oldPassword, newPassword });
+    return res.data;
+  },
+  
 };

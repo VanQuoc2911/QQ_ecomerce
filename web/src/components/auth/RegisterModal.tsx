@@ -9,9 +9,7 @@ import {
   Fade,
   IconButton,
   InputAdornment,
-  MenuItem,
   Modal,
-  Select,
   TextField,
   Typography,
 } from "@mui/material";
@@ -26,7 +24,7 @@ interface Props { open: boolean; onClose: () => void; }
 const RegisterModal: React.FC<Props> = ({ open, onClose }) => {
   const { register } = useAuth();
   const navigate = useNavigate();
-  const [role, setRole] = useState<Role>("user");
+  const [role,] = useState<Role>("user");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -87,13 +85,6 @@ const RegisterModal: React.FC<Props> = ({ open, onClose }) => {
                 ),
               }}
             />
-
-            <Select fullWidth value={role} onChange={(e) => setRole(e.target.value as Role)} sx={{ mt: 2 }}>
-              <MenuItem value="user">Người dùng</MenuItem>
-              <MenuItem value="seller">Người bán</MenuItem>
-              <MenuItem value="shipper">Người giao hàng</MenuItem>
-            </Select>
-
             <Button type="submit" fullWidth variant="contained" sx={{ mt: 2 }} disabled={loading}>
               {loading ? <CircularProgress size={24} /> : "Đăng ký"}
             </Button>

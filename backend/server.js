@@ -8,8 +8,10 @@ import { Server as IOServer } from "socket.io";
 dotenv.config();
 
 import authRoutes from "./routes/authRoutes.js";
+import cartRoutes from "./routes/cartRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
+import profileRoutes from "./routes/profileRoutes.js";
 import { autoApproveSellerRequests } from "./systemWorker.js";
 
 const app = express();
@@ -28,7 +30,8 @@ app.use(
 app.use("/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
-
+app.use("/api/cart", cartRoutes);
+app.use("/auth/profile", profileRoutes);
 app.get("/", (req, res) => res.send("✅ QQ Ecommerce API running"));
 
 const server = http.createServer(app);

@@ -2,13 +2,13 @@
 import type { Role } from "../types/User";
 
 const redirectMap: Record<Role, string> = {
-  admin: "/admin/admin-dashboard",
-  system: "/system/approvals",
-  seller: "/seller/seller-dashboard",
-  shipper: "/shipper/shipper-orders",
-  user: "/user/home",
+  admin: "/admin/dashboard",
+  system: "/approvals",
+  seller: "/dashboard",
+  shipper: "/shipper-orders",
+  user: "/home",
 };
 
 export const getRoleRedirectPath = (role: Role): string => {
-  return redirectMap[role] ?? "/user/home";
+  return redirectMap[role] ?? "/home";
 };

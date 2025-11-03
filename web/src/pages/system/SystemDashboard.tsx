@@ -6,13 +6,13 @@ import type { User } from "../../types";
 
 // Import system components
 import {
-    RequestApproval,
-    SellerManagement,
-    ShipperManagement,
-    SystemHeader,
-    SystemSidebar,
-    SystemStats,
-    UserManagement
+  RequestApproval,
+  SellerManagement,
+  ShipperManagement,
+  SystemHeader,
+  SystemSidebar,
+  SystemStats,
+  UserManagement
 } from "../../components/system";
 
 interface SystemStatsData {
