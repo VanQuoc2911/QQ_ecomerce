@@ -1,19 +1,18 @@
 import {
-    Alert,
-    Box,
-    Button,
-    Divider,
-    FormControlLabel,
-    Paper,
-    Switch,
-    TextField,
-    Typography
+  Alert,
+  Box,
+  Button,
+  Divider,
+  FormControlLabel,
+  Paper,
+  Switch,
+  TextField,
+  Typography
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import React, { useState } from "react";
 
 const SettingsPage: React.FC = () => {
-  const [darkMode, setDarkMode] = useState(false);
   const [autoApprove, setAutoApprove] = useState(false);
   const [email, setEmail] = useState("");
   const [smtpServer, setSmtpServer] = useState("");
@@ -24,7 +23,6 @@ const SettingsPage: React.FC = () => {
     setSuccess(true);
 
     const payload = {
-      darkMode,
       autoApprove,
       smtp: {
         email,
@@ -50,15 +48,6 @@ const SettingsPage: React.FC = () => {
         </Alert>
       )}
 
-      <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
-        <Typography fontSize={18} fontWeight={600} mb={2}>
-          Display Settings
-        </Typography>
-        <FormControlLabel
-          control={<Switch checked={darkMode} onChange={() => setDarkMode(!darkMode)} />}
-          label="Enable Dark Mode 🌙"
-        />
-      </Paper>
 
       <Paper sx={{ p: 3, mb: 3, borderRadius: 3 }}>
         <Typography fontSize={18} fontWeight={600} mb={2}>
@@ -66,7 +55,7 @@ const SettingsPage: React.FC = () => {
         </Typography>
         <FormControlLabel
           control={<Switch checked={autoApprove} onChange={() => setAutoApprove(!autoApprove)} />}
-          label="Auto-Approve New Products ✅"
+          label="tự động duyệt sản phẩm✅"
         />
       </Paper>
 

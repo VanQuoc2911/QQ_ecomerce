@@ -1,41 +1,58 @@
-export interface Order {
-  _id?: string;
-  id: number;
-  userId: number;
-  total: number;
-  status: string;
-  date: string;
+// src/types/Order.ts
 
-  tracking?: Tracking[];
-  address?: string;
-
-  shipperInfo?: ShipperInfo;
-  shippingInfo?: ShippingInfo;
-  billingInfo?: BillingInfo;
-  customerInfo?: CustomerInfo;
-  sellerInfo?: SellerInfo;
-  items?: Item[];
-  sellerId?: number;
-  paymentInfo?: PaymentInfo;
-
-  createdAt?: string;
-  updatedAt?: string;
+/** ======================== Item trong giỏ hàng / order ======================== */
+export interface OrderItem {
+  productId: {
+    _id: string;
+    title: string;
+    price: number;
+    images: string[];
+  };
+  quantity: number;
+  price: number; // giá tại thời điểm mua
 }
 
+/** ======================== Dữ liệu gửi từ trang checkout lên API ======================== */
+export interface CheckoutOrder {
+  userId?: string; // optional nếu khách chưa đăng nhập
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  paymentMethod: "card" | "cod" | "qr";
+  items: OrderItem[];
+  total: number;
+}
+
+/** ======================== Dữ liệu order trả về từ API ======================== */
+export interface Order extends CheckoutOrder {
+  _id: string;          // required
+  status?: string;       // required
+  createdAt: string;    // required
+  updatedAt?: string;    // required
+}
+
+/** ======================== Response API list order ======================== */
+export interface OrderResponse {
+  data: Order[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+/** ======================== Tracking đơn hàng ======================== */
 export interface Tracking {
   status: string;
   location: string;
   note: string;
-  timestamp: string; // ✅ backend thường trả string ISO
+  timestamp: string; // ISO string
   coordinates: { lat: number; lng: number };
 }
 
-export interface Item {
-  productId: number;
-  qty: number;
-  price: number;
-}
-
+/** ======================== Thông tin thanh toán ======================== */
 export interface PaymentInfo {
   method: string;
   status: string;
@@ -45,6 +62,7 @@ export interface PaymentInfo {
   timestamp: string;
 }
 
+/** ======================== Thông tin vận chuyển ======================== */
 export interface ShipperInfo {
   shipperId: number;
   shipperName: string;
@@ -62,6 +80,7 @@ export interface ShippingInfo {
   note?: string;
 }
 
+/** ======================== Thông tin hóa đơn ======================== */
 export interface BillingInfo {
   fullName: string;
   phone: string;
@@ -71,6 +90,7 @@ export interface BillingInfo {
   city: string;
 }
 
+/** ======================== Thông tin khách hàng ======================== */
 export interface CustomerInfo {
   fullName: string;
   phone: string;
@@ -81,6 +101,7 @@ export interface CustomerInfo {
   city: string;
 }
 
+/** ======================== Thông tin người bán ======================== */
 export interface SellerInfo {
   fullName: string;
   phone: string;
@@ -89,14 +110,4 @@ export interface SellerInfo {
   ward: string;
   district: string;
   city: string;
-}
-
-export interface OrderResponse {
-  data: Order[];
-  pagination: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
-  };
 }

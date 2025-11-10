@@ -1,15 +1,11 @@
 import mongoose from "mongoose";
 
-const shopSchema = new mongoose.Schema(
+const shopSubSchema = new mongoose.Schema(
   {
+    shopId: { type: mongoose.Schema.Types.ObjectId, ref: "Shop" },
     shopName: String,
     logo: String,
     address: String,
-    phone: String,
-    website: String,
-    businessLicenseUrl: String,
-    description: String,
-    rating: { type: Number, default: 0 },
   },
   { _id: false }
 );
@@ -28,7 +24,10 @@ const userSchema = new mongoose.Schema({
   address: String,
   avatar: String,
   sellerApproved: { type: Boolean, default: false },
-  shop: { type: shopSchema, default: null },
+  // personal embedded shop summary (optional)
+  shop: { type: shopSubSchema, default: null },
+  // If seller can own multiple shops:
+  shopIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "Shop" }],
   createdAt: { type: Date, default: Date.now },
 });
 

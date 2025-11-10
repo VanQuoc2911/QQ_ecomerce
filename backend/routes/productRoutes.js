@@ -1,22 +1,62 @@
 import express from "express";
-import multer from "multer";
+import {
+  getProductById,
+  getProductSales,
+  listPendingProducts,
+  listProducts,
+  listProductsByShop,
+  reviewProduct,
+} from "../controllers/productController.js";
 import {
   createProduct,
-  getProductById,
-  listProducts,
-} from "../controllers/productController.js";
+  deleteProduct,
+  getMyProducts,
+  updateProduct,
+} from "../controllers/sellerController.js";
 import { roleGuard, verifyToken } from "../middleware/authMiddleware.js";
-
-const upload = multer({ dest: "/tmp/uploads" });
+import upload, { uploadToCloudinary } from "../middleware/uploadMiddleware.js";
 const router = express.Router();
+router.get("/pending", verifyToken, roleGuard(["admin"]), listPendingProducts);
 
 router.get("/", listProducts);
+router.get("/shop/:shopId", listProductsByShop);
+router.get("/:id", getProductById);
+
+// product creation - seller or admin
 router.post(
   "/",
   verifyToken,
   roleGuard(["seller", "admin"]),
   upload.array("images", 6),
+  uploadToCloudinary,
   createProduct
 );
-router.get("/:id", getProductById);
+router.put(
+  "/:id",
+  verifyToken,
+  roleGuard(["seller", "admin"]),
+  upload.array("images", 6),
+  updateProduct
+);
+router.delete(
+  "/:id",
+  verifyToken,
+  roleGuard(["seller", "admin"]),
+  deleteProduct
+);
+
+// admin review
+router.post("/:id/review", verifyToken, roleGuard(["admin"]), reviewProduct);
+
+// product sales stats
+router.get(
+  "/:productId/sales",
+  verifyToken,
+  roleGuard(["admin", "seller"]),
+  getProductSales
+);
+
+// seller: get my products
+router.get("/me/products", verifyToken, roleGuard(["seller"]), getMyProducts);
+
 export default router;

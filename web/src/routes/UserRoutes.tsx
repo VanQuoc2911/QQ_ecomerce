@@ -1,6 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 import Cart from "../pages/user/Cart";
 import Checkout from "../pages/user/Checkout";
+import CheckoutSuccess from "../pages/user/CheckoutSuccess";
 import Home from "../pages/user/Home";
 import ProductDetail from "../pages/user/ProductDetail";
 import Products from "../pages/user/ProductList";
@@ -15,6 +16,8 @@ export default function UserRoutes() {
       <Route path="cart" element={<Cart />} />
       <Route path="checkout" element={<Checkout />} />
       <Route path="profile" element={<Profile />} />
+      <Route path="checkout-success" element={<CheckoutSuccess />} />
+
     </Routes>
   );
 }

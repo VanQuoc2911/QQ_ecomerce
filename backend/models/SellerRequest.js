@@ -1,23 +1,23 @@
 import mongoose from "mongoose";
 
-const sellerReqSchema = new mongoose.Schema({
+const sellerRequestSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  shopName: { type: String, required: true },
-  logo: String, // cloudinary url
+  shopName: String,
+  logo: String,
   address: String,
   phone: String,
   website: String,
-  businessLicenseUrl: String, // cloudinary url
+  businessLicenseUrl: String,
   description: String,
   status: {
     type: String,
     enum: ["pending", "approved", "rejected"],
     default: "pending",
   },
-  submittedAt: { type: Date, default: Date.now },
   reviewedAt: Date,
-  reviewerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // admin or system
+  reviewerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   reviewNote: String,
+  createdAt: { type: Date, default: Date.now },
 });
 
-export default mongoose.model("SellerRequest", sellerReqSchema);
+export default mongoose.model("SellerRequest", sellerRequestSchema);

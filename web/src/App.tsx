@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import AuthProvider from "./context/AuthProvider";
+import { AuthProvider } from "./context/AuthProvider";
 import MainLayout from "./layouts/MainLayout";
 import AdminRoutes from "./routes/AdminRoutes";
 import SellerRoutes from "./routes/SellerRoutes";

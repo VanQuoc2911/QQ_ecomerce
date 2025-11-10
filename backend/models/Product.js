@@ -6,14 +6,20 @@ const productSchema = new mongoose.Schema({
   price: { type: Number, required: true },
   stock: { type: Number, default: 0 },
   images: [String],
-  sellerId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  sellerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  shopId: { type: mongoose.Schema.Types.ObjectId, ref: "Shop", required: true },
   categories: [String],
   variants: { type: Object, default: {} },
   status: {
     type: String,
     enum: ["pending", "approved", "rejected"],
-    default: "approved",
+    default: "pending",
   },
+  soldCount: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
 });
 

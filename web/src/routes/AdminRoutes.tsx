@@ -5,9 +5,10 @@ import { useAuth } from "../context/AuthContext";
 
 // ✅ Import đầy đủ các trang Admin
 import AdminDashboard from "../admin/pages/AdminDashboard";
-import ProductApproval from "../admin/pages/ProductsApproval";
+import AdminProductReview from "../admin/pages/AdminProductReview";
 import AdminSettings from "../admin/pages/SystemSettings";
 import ManageUsers from "../admin/pages/User";
+import SellerEditProduct from "../pages/seller/SellerEditProduct";
 
 export default function AdminRoutes() {
   const { user, role } = useAuth();
@@ -25,7 +26,8 @@ export default function AdminRoutes() {
       <Route path="dashboard" element={<AdminDashboard />} />
 
       {/* ✅ Quản lý sản phẩm chờ duyệt */}
-      <Route path="products" element={<ProductApproval />} />
+      <Route path="Products" element={<AdminProductReview />} />
+      <Route path="products/:id" element={<SellerEditProduct />} />
 
       {/* ✅ Quản lý người dùng */}
       <Route path="users" element={<ManageUsers />} />

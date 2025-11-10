@@ -1,271 +1,143 @@
-import {
-  AppBar,
-  Box,
-  Button,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Toolbar,
-  Typography
-} from "@mui/material";
+import AttachMoneyIcon from "@mui/icons-material/AttachMoney";
+import InventoryIcon from "@mui/icons-material/Inventory";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import { Box, Typography } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { useEffect, useState } from "react";
-import { api } from "../../api/axios";
 import { productService } from "../../api/productService";
-import ProductFormAdvanced from "../../components/seller/ProductFormAdvanced";
-import ProductsTable from "../../components/seller/ProductsTable";
-import SellerSidebar from "../../components/seller/SellerSidebar";
-import SellerStatsCards from "../../components/seller/SellerStatsCards";
-import { useAuth } from "../../context/AuthContext";
-import type { Product as ProductType } from "../../types/Product";
+import { sellerService, type SellerStats } from "../../api/sellerService";
+import SellerStatCard from "../../components/seller/SellerStatsCards";
 
-interface SellerStats {
-  products: number;
-  orders: number;
-  revenue: number;
-  pendingOrders: number;
-}
-
-interface Product {
-  id: number;
+// ✅ Định nghĩa kiểu dữ liệu sản phẩm (summary dùng trong top list)
+export interface ProductSummary {
+  _id: string;
   title: string;
   price: number;
-  stock: number;
-  description: string;
-  image: string;
+  images: string[];
+  soldCount?: number;
+  createdAt?: string;
 }
-
-interface Order {
-  id: number;
-  userId: number;
-  total: number;
-  status: string;
-  date: string;
-}
-
-const drawerWidth = 280;
 
 export default function SellerDashboard() {
-  const { user, logout } = useAuth();
-  const [stats, setStats] = useState<SellerStats>({ products: 0, orders: 0, revenue: 0, pendingOrders: 0 });
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedMenu, setSelectedMenu] = useState("dashboard");
-  
-  // Form states
-  const [productFormOpen, setProductFormOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [deleteProduct, setDeleteProduct] = useState<Product | null>(null);
+  const [stats, setStats] = useState<SellerStats | null>(null);
+  const [topProducts, setTopProducts] = useState<ProductSummary[]>([]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        const [productsRes, ordersRes] = await Promise.all([
-          api.get<Product[]>("/products"),
-          api.get<Order[]>("/orders")
-        ]);
-        
-        const productsData = productsRes.data;
-        const ordersData = ordersRes.data;
-        
-        // Calculate stats
-        const totalRevenue = ordersData.reduce((sum: number, order: Order) => sum + (order.total || 0), 0);
-        const pendingOrders = ordersData.filter((order: Order) => order.status === "pending").length;
-        
-        setStats({
-          products: productsData.length,
-          orders: ordersData.length,
-          revenue: totalRevenue,
-          pendingOrders: pendingOrders
-        });
-        
-        setProducts(productsData);
-      } catch (err) {
-        console.error("Fetch data error:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+    // Lấy dữ liệu thống kê tổng quan của seller
+    sellerService
+      .getStats()
+      .then(setStats)
+      .catch((err) => console.error("❌ getStats error:", err));
+
+    // Lấy danh sách sản phẩm để hiển thị top bán chạy
+    productService
+      .getProducts({ limit: 10 })
+      .then((res) => {
+        const items: ProductSummary[] = Array.isArray(res.items)
+          ? res.items.map((item) => ({
+              _id: item._id,
+              title: item.title,
+              price: item.price,
+              images: item.images || [],
+              soldCount: item.soldCount ?? 0,
+              createdAt: item.createdAt,
+            }))
+          : [];
+
+        // Sắp xếp theo soldCount (nếu có)
+        const sorted = [...items].sort(
+          (a, b) => (b.soldCount ?? 0) - (a.soldCount ?? 0)
+        );
+
+        setTopProducts(sorted.slice(0, 5));
+      })
+      .catch((err) => console.error("❌ getProducts error:", err));
   }, []);
 
-  const handleLogout = async () => {
-    await logout();
-  };
-
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const [productsRes, ordersRes] = await Promise.all([
-        api.get<Product[]>("/products"),
-        api.get<Order[]>("/orders")
-      ]);
-      
-      const productsData = productsRes.data;
-      const ordersData = ordersRes.data;
-      
-      // Calculate stats
-      const totalRevenue = ordersData.reduce((sum: number, order: Order) => sum + (order.total || 0), 0);
-      const pendingOrders = ordersData.filter((order: Order) => order.status === "pending").length;
-      
-      setStats({
-        products: productsData.length,
-        orders: ordersData.length,
-        revenue: totalRevenue,
-        pendingOrders: pendingOrders
-      });
-      
-      setProducts(productsData);
-    } catch (err) {
-      console.error("Fetch data error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Product CRUD handlers
-  const handleCreateProduct = async (productData: Omit<ProductType, 'id' | '_id' | 'createdAt' | 'updatedAt'>) => {
-    // Thêm sellerId và status pending cho sản phẩm mới
-    const productWithSeller = {
-      ...productData,
-      sellerId: 2, // TODO: Get from auth context
-      status: 'pending' as const // Sản phẩm chờ duyệt
-    };
-    await productService.createProduct(productWithSeller);
-    await fetchData();
-  };
-
-  const handleUpdateProduct = async (productData: Omit<ProductType, 'id' | '_id' | 'createdAt' | 'updatedAt'>) => {
-    if (editingProduct) {
-      await productService.updateProduct(editingProduct.id, productData);
-      await fetchData();
-    }
-  };
-
-  const handleDeleteProduct = async (product: Product) => {
-    await productService.deleteProduct(product.id);
-    await fetchData();
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (deleteProduct) {
-      try {
-        await handleDeleteProduct(deleteProduct);
-        setDeleteDialogOpen(false);
-        setDeleteProduct(null);
-      } catch (error) {
-        console.error('Delete error:', error);
-      }
-    }
-  };
-
-
-  const renderDashboard = () => (
-    <Box>
-      <SellerStatsCards stats={stats} loading={loading} />
-      <ProductsTable
-        products={products}
-        onAddProduct={() => {
-          setEditingProduct(null);
-          setProductFormOpen(true);
-        }}
-        onEditProduct={(product) => {
-          setEditingProduct(product);
-          setProductFormOpen(true);
-        }}
-        onDeleteProduct={(product) => {
-          setDeleteProduct(product);
-          setDeleteDialogOpen(true);
-        }}
-        showRecentOnly={true}
-      />
-    </Box>
-  );
-
-  const renderProducts = () => (
-    <ProductsTable
-      products={products}
-      onAddProduct={() => {
-        setEditingProduct(null);
-        setProductFormOpen(true);
-      }}
-      onEditProduct={(product) => {
-        setEditingProduct(product);
-        setProductFormOpen(true);
-      }}
-      onDeleteProduct={(product) => {
-        setDeleteProduct(product);
-        setDeleteDialogOpen(true);
-      }}
-      showRecentOnly={false}
-    />
-  );
-
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh" }}>
-      {/* Sidebar */}
-      <SellerSidebar
-        selectedMenu={selectedMenu}
-        onMenuSelect={setSelectedMenu}
-        drawerWidth={drawerWidth}
-      />
+    <Box>
+      <Typography variant="h5" fontWeight={700} mb={3}>
+        📊 Tổng quan cửa hàng
+      </Typography>
 
-      {/* Main Content */}
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
-        {/* Top App Bar */}
-        <AppBar position="static" elevation={0} sx={{ bgcolor: 'white', color: 'text.primary' }}>
-          <Toolbar>
-            <Typography variant="h6" sx={{ flexGrow: 1 }}>
-              Chào mừng, {user?.displayName || user?.email || "Seller"}
+      {/* --- Thống kê 3 ô: sản phẩm / đơn / doanh thu --- */}
+      <Grid container spacing={2} mb={3}>
+        <Grid item xs={12} sm={4}>
+          <SellerStatCard
+            title="Số sản phẩm"
+            value={stats?.totalProducts ?? 0}
+            icon={<InventoryIcon />}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={4}>
+          <SellerStatCard
+            title="Số đơn hàng"
+            value={stats?.totalSales ?? 0}
+            icon={<ShoppingCartIcon />}
+          />
+        </Grid>
+
+        <Grid item xs={12} sm={4}>
+          <SellerStatCard
+            title="Doanh thu"
+            value={
+              stats
+                ? `${Number(stats.totalRevenue).toLocaleString()} ₫`
+                : "0 ₫"
+            }
+            icon={<AttachMoneyIcon />}
+          />
+        </Grid>
+      </Grid>
+
+      {/* --- Top sản phẩm --- */}
+      <Box>
+        <Typography variant="h6" mb={1}>
+          🔥 Sản phẩm bán chạy
+        </Typography>
+        <Grid container spacing={2}>
+          {topProducts.length === 0 ? (
+            <Typography color="text.secondary" ml={1}>
+              Chưa có dữ liệu.
             </Typography>
-            <Button onClick={handleLogout} color="inherit">
-              Đăng xuất
-            </Button>
-          </Toolbar>
-        </AppBar>
-
-        {/* Content */}
-        <Box sx={{ flexGrow: 1, p: 3, bgcolor: '#f5f5f5' }}>
-          {selectedMenu === "dashboard" && renderDashboard()}
-          {selectedMenu === "products" && renderProducts()}
-          {selectedMenu === "orders" && (
-            <Typography variant="h4">Quản lý đơn hàng</Typography>
+          ) : (
+            topProducts.map((p) => (
+              <Grid item xs={12} sm={6} md={4} key={p._id}>
+                <Box
+                  display="flex"
+                  gap={2}
+                  alignItems="center"
+                  p={2}
+                  borderRadius={2}
+                  boxShadow={1}
+                  sx={{ transition: "all 0.2s", "&:hover": { boxShadow: 3 } }}
+                >
+                  <img
+                    src={p.images?.[0] ?? "https://via.placeholder.com/120"}
+                    alt={p.title}
+                    style={{
+                      width: 100,
+                      height: 80,
+                      objectFit: "cover",
+                      borderRadius: 6,
+                    }}
+                  />
+                  <Box>
+                    <Typography fontWeight={700}>{p.title}</Typography>
+                    <Typography color="text.secondary" fontSize={13}>
+                      Đã bán: {p.soldCount ?? 0}
+                    </Typography>
+                    <Typography color="text.secondary" fontSize={13}>
+                      Giá: {Number(p.price).toLocaleString()}₫
+                    </Typography>
+                  </Box>
+                </Box>
+              </Grid>
+            ))
           )}
-          {selectedMenu === "analytics" && (
-            <Typography variant="h4">Phân tích bán hàng</Typography>
-          )}
-        </Box>
+        </Grid>
       </Box>
-
-      {/* Forms and Dialogs */}
-      <ProductFormAdvanced
-        open={productFormOpen}
-        onClose={() => {
-          setProductFormOpen(false);
-          setEditingProduct(null);
-        }}
-        onSubmit={editingProduct ? handleUpdateProduct : handleCreateProduct}
-        product={editingProduct as ProductType}
-        title={editingProduct ? "Chỉnh sửa sản phẩm" : "Thêm sản phẩm mới"}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
-        <DialogTitle>Xác nhận xóa</DialogTitle>
-        <DialogContent>
-          <Typography>
-            Bạn có chắc chắn muốn xóa sản phẩm "{deleteProduct?.title}"?
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>Hủy</Button>
-          <Button onClick={handleDeleteConfirm} color="error" variant="contained">
-            Xóa
-          </Button>
-        </DialogActions>
-      </Dialog>
     </Box>
   );
 }

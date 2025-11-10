@@ -1,7 +1,8 @@
 import api from "./axios";
 
-// ✅ Định nghĩa kiểu dữ liệu sản phẩm trả về từ API
+// ✅ Kiểu dữ liệu sản phẩm trả về từ API
 export interface ApiProduct {
+  soldCount: number;
   _id: string;
   title: string;
   description: string;
@@ -16,7 +17,7 @@ export interface ApiProduct {
   __v: number;
 }
 
-// ✅ Định nghĩa kiểu dữ liệu response API
+// ✅ Kiểu dữ liệu response API
 export interface ProductResponse {
   items: ApiProduct[];
   total: number;
@@ -25,7 +26,7 @@ export interface ProductResponse {
 }
 
 export const productService = {
-  // ✅ Lấy danh sách sản phẩm
+  // ✅ Lấy danh sách sản phẩm (có thể truyền status, page, limit)
   getProducts: async (params?: {
     page?: number;
     limit?: number;
@@ -35,9 +36,24 @@ export const productService = {
     return data;
   },
 
-  // ✅ Lấy chi tiết sản phẩm theo ID
+  // ✅ Cập nhật sản phẩm (dùng cho duyệt sản phẩm)
+  updateProduct: async (
+    id: string | number,
+    productData: Partial<ApiProduct>
+  ): Promise<ApiProduct> => {
+    const { data } = await api.put(`/api/products/${id}`, productData);
+    return data;
+  },
+
+  // ✅ Lấy chi tiết sản phẩm
   getProductById: async (id: string): Promise<ApiProduct> => {
     const { data } = await api.get(`/api/products/${id}`);
     return data;
   },
+    // ✅ Xoá sản phẩm
+  deleteProduct: async (id: string | number): Promise<{ message: string }> => {
+    const { data } = await api.delete(`/api/products/${id}`);
+    return data;
+  },
 };
+
