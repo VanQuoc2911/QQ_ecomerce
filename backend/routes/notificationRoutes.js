@@ -45,6 +45,20 @@ router.patch("/:id/read", verifyToken, async (req, res) => {
   }
 });
 
+// Mark all notifications as read for current user
+router.post("/mark-all-read", verifyToken, async (req, res) => {
+  try {
+    const result = await Notification.updateMany(
+      { userId: req.user.id, read: { $ne: true } },
+      { $set: { read: true } }
+    );
+    res.json({ modifiedCount: result.modifiedCount || result.nModified || 0 });
+  } catch (err) {
+    console.error("mark-all-read error", err);
+    res.status(500).json({ message: "Lỗi server" });
+  }
+});
+
 // Delete notification
 router.delete("/:id", verifyToken, async (req, res) => {
   try {

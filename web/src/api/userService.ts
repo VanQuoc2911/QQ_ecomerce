@@ -1,6 +1,11 @@
 import type { User, UserProfile, UserResponse } from "../types/User";
 import { api } from "./axios";
 
+// ✅ Thông báo khi profile được cập nhật
+const notifyProfileUpdated = () => {
+  window.dispatchEvent(new Event("profileUpdated"));
+};
+
 export const userService = {
   getUsers: async (params?: { page?: number; limit?: number; q?: string }): Promise<UserResponse> => {
     const response = await api.get("/api/users", { params });
@@ -35,12 +40,27 @@ export const userService = {
   // Cập nhật profile user (name, phone, address, avatar, shop info)
   updateProfile: async (data: Partial<UserProfile>): Promise<UserProfile> => {
     const res = await api.put("/auth/profile", data);
+    notifyProfileUpdated();
     return res.data.user; // backend trả { message, user }
   },
 
   // Đổi mật khẩu
   changePassword: async (oldPassword: string, newPassword: string) => {
     const res = await api.put("/auth/profile/password", { oldPassword, newPassword });
+    return res.data;
+  },
+  
+  // Yêu cầu đăng ký seller
+  requestSeller: async (payload: {
+    shopName: string;
+    logo: string;
+    address?: string;
+    phone?: string;
+    website?: string;
+    businessLicenseUrl?: string;
+    description?: string;
+  }) => {
+    const res = await api.post("/auth/request-seller", payload);
     return res.data;
   },
   

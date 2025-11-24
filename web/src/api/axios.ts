@@ -20,6 +20,9 @@
     if (token) {
       config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
+      console.log("📤 [Axios] Request with token:", token.substring(0, 20) + "...");
+    } else {
+      console.log("⚠️ [Axios] No token found in localStorage");
     }
     return config;
   });
@@ -48,6 +51,12 @@
     (res) => res,
     async (error: AxiosError) => {
       const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+
+      if (error.response?.status === 403) {
+        console.error("❌ [Axios] 403 Forbidden - User does not have admin permission");
+        console.error("❌ [Axios] Current token:", localStorage.getItem("accessToken"));
+        return Promise.reject(error);
+      }
 
       if (error.response?.status === 401 && !originalRequest._retry) {
         const refreshToken = getRefreshToken();

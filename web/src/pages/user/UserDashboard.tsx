@@ -1,37 +1,43 @@
 import {
-  Favorite,
-  Home,
-  Person,
-  Receipt,
-  ShoppingCart,
-  Store
+    Favorite,
+    Home,
+    Person,
+    Receipt,
+    ShoppingCart,
+    Store
 } from "@mui/icons-material";
 import type { ChipProps } from "@mui/material";
 import {
-  AppBar,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  Drawer,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Toolbar,
-  Typography
+    Alert,
+    AppBar,
+    Box,
+    Button,
+    Card,
+    CardContent,
+    Chip,
+    CircularProgress,
+    Drawer,
+    List,
+    ListItem,
+    ListItemIcon,
+    ListItemText,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TableRow,
+    Toolbar,
+    Typography
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { useEffect, useState } from "react";
 import { api } from "../../api/axios";
+import { favoriteService } from "../../api/favoriteService";
+import type { ApiProduct } from "../../api/productService";
+import ProductCard from "../../components/user/ProductCard";
 import { useAuth } from "../../context/AuthContext";
+import type { ProductCard as ProductCardType } from "../../types/ProductCard";
 
 interface UserStats {
   totalOrders: number;
@@ -60,6 +66,9 @@ export default function UserDashboard() {
   });
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [favoriteProducts, setFavoriteProducts] = useState<ProductCardType[]>([]);
+  const [favoriteLoading, setFavoriteLoading] = useState(false);
+  const [favoriteError, setFavoriteError] = useState<string | null>(null);
   const [selectedMenu, setSelectedMenu] = useState("home");
 
   useEffect(() => {
@@ -88,6 +97,57 @@ export default function UserDashboard() {
 
   const handleLogout = async () => {
     await logout();
+  };
+
+  const mapApiProductToCard = (product: ApiProduct): ProductCardType => {
+    const maybeShop = product.shopId as unknown as
+      | string
+      | { _id?: string; shopName?: string; logo?: string };
+    const shopId = typeof maybeShop === "string" ? maybeShop : maybeShop?._id;
+    const shopName = typeof maybeShop === "object" ? maybeShop?.shopName : undefined;
+    const shopLogo = typeof maybeShop === "object" ? maybeShop?.logo : undefined;
+
+    return {
+      id: product._id,
+      name: product.title,
+      price: product.price,
+      images: product.images,
+      videos: product.videos,
+      category: Array.isArray(product.categories) ? product.categories.join(", ") : "",
+      description: product.description,
+      stock: product.stock,
+      rating: product.rating ?? product.Rating ?? 0,
+      shopId,
+      shopName,
+      shopLogo,
+      isFavorite: true,
+    };
+  };
+
+  const loadFavorites = async () => {
+    setFavoriteLoading(true);
+    setFavoriteError(null);
+    try {
+      const favorites = await favoriteService.getFavorites();
+      setFavoriteProducts(favorites.map(mapApiProductToCard));
+    } catch (err) {
+      console.error("Failed to load favorites", err);
+      setFavoriteError("Không thể tải danh sách yêu thích. Vui lòng thử lại.");
+    } finally {
+      setFavoriteLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedMenu === "favorites") {
+      loadFavorites();
+    }
+  }, [selectedMenu]);
+
+  const handleFavoriteToggle = (productId: string, isFav: boolean) => {
+    if (!isFav) {
+      setFavoriteProducts((prev) => prev.filter((p) => p.id !== productId));
+    }
   };
 
   const menuItems = [
@@ -284,6 +344,39 @@ export default function UserDashboard() {
     </Box>
   );
 
+  const renderFavorites = () => (
+    <Box>
+      <Typography variant="h4" sx={{ mb: 3 }}>Sản phẩm yêu thích</Typography>
+
+      {favoriteLoading ? (
+        <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+          <CircularProgress />
+        </Box>
+      ) : favoriteError ? (
+        <Alert severity="error">{favoriteError}</Alert>
+      ) : favoriteProducts.length === 0 ? (
+        <Card>
+          <CardContent sx={{ py: 6, textAlign: "center" }}>
+            <Typography variant="h6" color="text.secondary">
+              Bạn chưa có sản phẩm yêu thích nào.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Hãy khám phá và nhấn ❤️ để lưu lại sản phẩm nhé!
+            </Typography>
+          </CardContent>
+        </Card>
+      ) : (
+        <Grid container spacing={3}>
+          {favoriteProducts.map((product) => (
+            <Grid item xs={12} sm={6} md={4} key={product.id}>
+              <ProductCard product={product} onFavoriteToggle={handleFavoriteToggle} />
+            </Grid>
+          ))}
+        </Grid>
+      )}
+    </Box>
+  );
+
   return (
     <Box sx={{ display: "flex", minHeight: "100vh" }}>
       {/* Sidebar */}
@@ -347,9 +440,7 @@ export default function UserDashboard() {
         <Box sx={{ flexGrow: 1, p: 3, bgcolor: '#f5f5f5' }}>
           {selectedMenu === "home" && renderHome()}
           {selectedMenu === "orders" && renderOrders()}
-          {selectedMenu === "favorites" && (
-            <Typography variant="h4">Sản phẩm yêu thích</Typography>
-          )}
+          {selectedMenu === "favorites" && renderFavorites()}
           {selectedMenu === "profile" && (
             <Typography variant="h4">Hồ sơ cá nhân</Typography>
           )}

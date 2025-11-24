@@ -3,8 +3,11 @@ import User from "../models/User.js";
 import { getNextId } from "../utils/getNextId.js";
 
 import {
+  addFavoriteProduct,
   changePassword,
+  getFavoriteProducts,
   getProfile,
+  removeFavoriteProduct,
   updateProfile,
 } from "../controllers/userController.js";
 import { verifyToken } from "../middleware/authMiddleware.js";
@@ -18,8 +21,13 @@ router.put("/profile", verifyToken, updateProfile);
 
 // ✅ Đổi mật khẩu
 router.put("/profile/password", verifyToken, changePassword);
+
+// ✅ Wishlist / favorites
+router.get("/favorites", verifyToken, getFavoriteProducts);
+router.post("/favorites/:productId", verifyToken, addFavoriteProduct);
+router.delete("/favorites/:productId", verifyToken, removeFavoriteProduct);
 // list users (admin could guard later)
-router.get("/", async (req, res) => {
+const listUsers = async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.max(1, Number(req.query.limit) || 20);
@@ -27,19 +35,26 @@ router.get("/", async (req, res) => {
     const filter = q
       ? { $or: [{ name: new RegExp(q, "i") }, { email: new RegExp(q, "i") }] }
       : {};
+
     const total = await User.countDocuments(filter);
     const users = await User.find(filter)
       .skip((page - 1) * limit)
       .limit(limit)
       .sort({ id: 1 })
-      .select("-password");
+      .select("-password")
+      .lean();
+
     res.json({ data: users, page, limit, total });
   } catch (err) {
+    console.error("GET /users error:", err);
     res.status(500).json({ message: err.message });
   }
-});
+};
 
-router.get("/:id", async (req, res) => {
+router.get("/", listUsers);
+router.get("/users", listUsers);
+
+const getUserById = async (req, res) => {
   try {
     const param = req.params.id;
     const user = isNaN(param)
@@ -50,7 +65,10 @@ router.get("/:id", async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
-});
+};
+
+router.get("/users/:id", getUserById);
+router.get("/:id", getUserById);
 
 router.post("/", async (req, res) => {
   try {

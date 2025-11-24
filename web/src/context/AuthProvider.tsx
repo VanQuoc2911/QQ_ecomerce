@@ -1,4 +1,5 @@
 /* eslint-disable react-hooks/exhaustive-deps */
+ 
 import type { GoogleCredentialResponse } from "@react-oauth/google";
 import { type ReactNode, useEffect, useState } from "react";
 import api from "../api/axios";
@@ -16,17 +17,20 @@ export const AuthProvider = ({ children }: Props) => {
   const adminEmail = import.meta.env.VITE_ADMIN_EMAIL;
   const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD;
 
+  const buildAdminUser = (): User => ({
+    id: 0,
+    name: "Admin",
+    email: adminEmail,
+    role: "admin",
+    avatar: "https://ui-avatars.com/api/?name=Admin",
+    favorites: [],
+  });
+
   // ✅ Login email/password
   const login = async (email: string, password: string): Promise<User> => {
     // ✅ Admin đăng nhập
     if (email === adminEmail && password === adminPassword) {
-      const adminUser: User = {
-        id: 0,
-        name: "Admin",
-        email: adminEmail,
-        role: "admin",
-        avatar: "https://ui-avatars.com/api/?name=Admin",
-      };
+      const adminUser = buildAdminUser();
 
       localStorage.setItem("accessToken", "admin-token");
       setUser(adminUser);
@@ -36,7 +40,10 @@ export const AuthProvider = ({ children }: Props) => {
     // ✅ User đăng nhập
     const res = await api.post("/auth/login", { email, password });
 
-    const loggedUser: User = res.data.user;
+    const loggedUser: User = {
+      ...res.data.user,
+      favorites: res.data.user?.favorites ?? [],
+    };
 
     localStorage.setItem("accessToken", res.data.token);
     localStorage.setItem("refreshToken", res.data.refreshToken);
@@ -61,7 +68,10 @@ export const AuthProvider = ({ children }: Props) => {
       avatar,
     });
 
-    const newUser: User = res.data.user;
+    const newUser: User = {
+      ...res.data.user,
+      favorites: res.data.user?.favorites ?? [],
+    };
 
     localStorage.setItem("accessToken", res.data.token);
     localStorage.setItem("refreshToken", res.data.refreshToken);
@@ -86,17 +96,9 @@ export const AuthProvider = ({ children }: Props) => {
       return;
     }
 
-    // ✅ Admin
+    // ✅ Admin - auto-restore session when token matches admin token
     if (token === "admin-token") {
-      const adminUser: User = {
-        id: 0,
-        name: "Admin",
-        email: adminEmail,
-        role: "admin",
-        avatar: "https://ui-avatars.com/api/?name=Admin",
-      };
-
-      setUser(adminUser);
+      setUser(buildAdminUser());
       return;
     }
 
@@ -106,7 +108,7 @@ export const AuthProvider = ({ children }: Props) => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setUser(res.data);
+      setUser({ ...res.data, favorites: res.data?.favorites ?? [] });
     } catch {
       setUser(null);
     }
@@ -139,7 +141,10 @@ export const AuthProvider = ({ children }: Props) => {
     }
 
     // ✅ Save user
-    const gUser: User = res.data.user;
+    const gUser: User = {
+      ...res.data.user,
+      favorites: res.data.user?.favorites ?? [],
+    };
     setUser(gUser);
 
     return gUser;
@@ -149,6 +154,52 @@ export const AuthProvider = ({ children }: Props) => {
   useEffect(() => {
     refreshUser().finally(() => setLoading(false));
   }, []);
+
+  // ✅ Lắng nghe sự kiện profileUpdated và cập nhật user
+  useEffect(() => {
+    const handleProfileUpdated = async () => {
+      await refreshUser();
+    };
+    window.addEventListener("profileUpdated", handleProfileUpdated);
+    return () => window.removeEventListener("profileUpdated", handleProfileUpdated);
+  }, []);
+
+  // ✅ Admin auto-logout mechanisms
+  useEffect(() => {
+    if (!user || user.role !== "admin") return;
+
+    // Admin inactivity timeout (30 minutes)
+    const ADMIN_TIMEOUT = 30 * 60 * 1000; // 30 minutes
+    let inactivityTimer: ReturnType<typeof setTimeout>;
+
+    const resetInactivityTimer = () => {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        // Auto-logout after inactivity
+        localStorage.removeItem("accessToken");
+        setUser(null);
+        console.log("Admin auto-logged out due to inactivity");
+      }, ADMIN_TIMEOUT);
+    };
+
+    // Track user activity
+    const activityEvents = ["mousedown", "keydown", "scroll", "touchstart", "click"];
+
+    activityEvents.forEach((event) => {
+      window.addEventListener(event, resetInactivityTimer);
+    });
+
+    // Initial timer
+    resetInactivityTimer();
+
+    // Cleanup
+    return () => {
+      clearTimeout(inactivityTimer);
+      activityEvents.forEach((event) => {
+        window.removeEventListener(event, resetInactivityTimer);
+      });
+    };
+  }, [user]);
 
   return (
     <AuthContext.Provider

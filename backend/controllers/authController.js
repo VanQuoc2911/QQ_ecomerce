@@ -59,6 +59,8 @@ const register = async (req, res) => {
         name: user.name,
         email: user.email,
         role: user.role,
+        shipperApproved: user.shipperApproved,
+        favorites: user.favorites || [],
       },
     });
   } catch (err) {
@@ -90,6 +92,7 @@ const login = async (req, res) => {
         email: ADMIN_EMAIL,
         role: "admin",
         avatar: "",
+        favorites: [],
       };
 
       const token = jwt.sign(
@@ -139,6 +142,8 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role,
         sellerApproved: user.sellerApproved,
+        shipperApproved: user.shipperApproved,
+        favorites: user.favorites || [],
       },
     });
   } catch (err) {
@@ -201,6 +206,8 @@ const googleLogin = async (req, res) => {
         role: user.role,
         avatar: user.avatar,
         sellerApproved: user.sellerApproved,
+        shipperApproved: user.shipperApproved,
+        favorites: user.favorites || [],
       },
     });
   } catch (err) {
@@ -276,7 +283,7 @@ const getProfile = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { name, avatar, phone, address, shop } = req.body;
+    const { name, avatar, phone, address, shop, addresses } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(userId))
       return res
@@ -294,6 +301,33 @@ const updateProfile = async (req, res) => {
     if (phone) user.phone = phone;
     if (address) user.address = address;
 
+    // Handle addresses array
+    if (addresses && Array.isArray(addresses)) {
+      user.addresses = addresses.map((addr) => ({
+        id: addr.id,
+        name: addr.name,
+        phone: addr.phone,
+        province: addr.province,
+        district: addr.district,
+        ward: addr.ward,
+        detail: addr.detail,
+        lat: addr.lat,
+        lng: addr.lng,
+        pinnedLocation: addr.pinnedLocation
+          ? {
+              lat: addr.pinnedLocation.lat ?? null,
+              lng: addr.pinnedLocation.lng ?? null,
+              pinnedAt: addr.pinnedLocation.pinnedAt
+                ? new Date(addr.pinnedLocation.pinnedAt)
+                : new Date(),
+            }
+          : { lat: null, lng: null, pinnedAt: null },
+        type: addr.type || "home",
+        isDefault: addr.isDefault || false,
+        createdAt: addr.createdAt || new Date(),
+      }));
+    }
+
     if (shop) {
       user.shop = {
         shopName: shop.shopName || user.shop?.shopName,
@@ -306,6 +340,29 @@ const updateProfile = async (req, res) => {
     }
 
     await user.save();
+    // Notify user about profile/address update
+    try {
+      const Notification = (await import("../models/Notification.js")).default;
+      const notif = new Notification({
+        userId: user._id,
+        title: "Cập nhật thông tin",
+        message: "Thông tin cá nhân của bạn đã được cập nhật",
+        type: "profile",
+        read: false,
+      });
+      await notif.save();
+
+      try {
+        const { getIO } = await import("../utils/socket.js");
+        const io = getIO();
+        if (io) io.to(user._id.toString()).emit("notification:new", notif);
+      } catch (emitErr) {
+        console.warn("Failed to emit profile update notification:", emitErr);
+      }
+    } catch (nErr) {
+      console.warn("Failed to create profile update notification:", nErr);
+    }
+
     return res
       .status(200)
       .json({ success: true, message: "Cập nhật thành công", user });

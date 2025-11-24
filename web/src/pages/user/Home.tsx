@@ -1,27 +1,42 @@
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import HeadsetMicIcon from "@mui/icons-material/HeadsetMic";
+import LocalShippingIcon from "@mui/icons-material/LocalShipping";
+import SearchIcon from "@mui/icons-material/Search";
+import WorkspacePremiumIcon from "@mui/icons-material/WorkspacePremium";
 import {
+  Avatar,
   Box,
+  Button,
   Chip,
   CircularProgress,
   Container,
   Fade,
+  InputAdornment,
   Paper,
   Stack,
+  TextField,
   Typography,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import type { ChangeEvent, KeyboardEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Slider from "react-slick";
 import "slick-carousel/slick/slick-theme.css";
 import "slick-carousel/slick/slick.css";
 import { productService } from "../../api/productService";
 import ProductCard from "../../components/user/ProductCard";
+import { useAuth } from "../../context/AuthContext";
 import type { ProductResponse } from "../../types/Product";
 import type { ProductCard as ProductCardType } from "../../types/ProductCard";
 
 export default function Home() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
   const [productResponse, setProductResponse] = useState<ProductResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [heroSearch, setHeroSearch] = useState("");
 
   useEffect(() => {
     productService
@@ -31,6 +46,82 @@ export default function Home() {
       .finally(() => setLoading(false));
   }, []);
 
+  const products = useMemo(() => productResponse?.items ?? [], [productResponse]);
+
+  const featuredCategories = useMemo(() => {
+    const bucket = new Set<string>();
+    products.forEach((product) => {
+      const rawCats = Array.isArray(product.categories)
+        ? product.categories
+        : typeof product.categories === "string"
+          ? [product.categories]
+          : [];
+      rawCats.filter(Boolean).forEach((cat) => bucket.add(cat));
+    });
+    return Array.from(bucket).slice(0, 8);
+  }, [products]);
+
+  const curatedProducts = useMemo(() => products.slice(0, 12), [products]);
+
+  const hotProducts = useMemo(
+    () =>
+      products
+        .filter((p) => p.stock < 8 || (p.Rating ?? 0) >= 4.5)
+        .slice(0, 5),
+    [products]
+  );
+
+  const trendingProducts = useMemo(
+    () =>
+      [...products]
+        .sort((a, b) => (b.Rating ?? 0) - (a.Rating ?? 0))
+        .slice(0, 3),
+    [products]
+  );
+
+  const heroStats = useMemo(
+    () => [
+      {
+        label: "Sản phẩm chính hãng",
+        value: (productResponse?.total ?? products.length).toLocaleString("vi-VN"),
+      },
+      { label: "Thương hiệu uy tín", value: "120+" },
+      { label: "Điểm hài lòng", value: "4.9/5" },
+    ],
+    [productResponse?.total, products.length]
+  );
+
+  const featureHighlights = [
+    {
+      icon: AutoAwesomeIcon,
+      title: "Giao diện tinh tế",
+      description: "Trải nghiệm mua sắm sống động với chuyển động mềm mại và layout trực quan.",
+    },
+    {
+      icon: LocalShippingIcon,
+      title: "Giao hàng linh hoạt",
+      description: "Kết nối mạng lưới shipper toàn quốc cùng nhiều tuỳ chọn vận chuyển.",
+    },
+    {
+      icon: WorkspacePremiumIcon,
+      title: "Đảm bảo chính hãng",
+      description: "Từng sản phẩm đều được kiểm duyệt kỹ càng trước khi hiển thị.",
+    },
+    {
+      icon: HeadsetMicIcon,
+      title: "Hỗ trợ tận tâm",
+      description: "Đội ngũ AI & CSKH 24/7 đồng hành trong từng đơn hàng.",
+    },
+  ];
+
+  const spotlightProduct = hotProducts[0];
+
+  const handleHeroSearch = () => {
+    const keyword = heroSearch.trim();
+    if (!keyword) return;
+    navigate(`/products?q=${encodeURIComponent(keyword)}`);
+  };
+
   if (loading) {
     return (
       <Box sx={{ 
@@ -38,494 +129,547 @@ export default function Home() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e22ce 100%)',
+        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
         position: 'relative',
         overflow: 'hidden',
-        '&::before': {
-          content: '""',
-          position: 'absolute',
-          width: '200%',
-          height: '200%',
-          background: 'radial-gradient(circle, rgba(255,255,255,0.1) 1px, transparent 1px)',
-          backgroundSize: '50px 50px',
-          animation: 'moveBackground 20s linear infinite',
-        },
-        '@keyframes moveBackground': {
-          '0%': { transform: 'translate(0, 0)' },
-          '100%': { transform: 'translate(50px, 50px)' }
-        }
       }}>
-        <Stack alignItems="center" spacing={4} sx={{ position: 'relative', zIndex: 1 }}>
-          <Box sx={{ position: 'relative' }}>
-            <CircularProgress 
-              size={90} 
-              thickness={3.5}
-              sx={{
-                color: '#fff',
-                filter: 'drop-shadow(0 8px 32px rgba(126, 34, 206, 0.6))'
-              }}
-            />
-            <Box sx={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              width: 60,
-              height: 60,
-              borderRadius: '50%',
-              background: 'rgba(255,255,255,0.1)',
-              backdropFilter: 'blur(10px)',
-            }} />
-          </Box>
-          <Stack spacing={1} alignItems="center">
-            <Typography 
-              variant="h5"
-              sx={{ 
-                color: 'white',
-                fontWeight: 700,
-                letterSpacing: 2,
-                textTransform: 'uppercase'
-              }}
-            >
-              Đang tải
-            </Typography>
-            <Typography 
-              sx={{ 
-                color: 'rgba(255,255,255,0.8)',
-                fontSize: '0.95rem',
-                fontWeight: 500
-              }}
-            >
-              Chuẩn bị trải nghiệm mua sắm tuyệt vời...
-            </Typography>
-          </Stack>
+        {/* Animated background particles */}
+        <Box sx={{
+          position: 'absolute',
+          width: '100%',
+          height: '100%',
+          '&::before, &::after': {
+            content: '""',
+            position: 'absolute',
+            width: '300px',
+            height: '300px',
+            borderRadius: '50%',
+            background: 'rgba(255,255,255,0.1)',
+            animation: 'float 6s ease-in-out infinite'
+          },
+          '&::before': {
+            top: '10%',
+            left: '10%',
+            animationDelay: '0s'
+          },
+          '&::after': {
+            bottom: '10%',
+            right: '10%',
+            animationDelay: '3s'
+          },
+          '@keyframes float': {
+            '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
+            '50%': { transform: 'translate(30px, -30px) scale(1.1)' }
+          }
+        }} />
+        
+        <Stack alignItems="center" spacing={3} sx={{ position: 'relative', zIndex: 1 }}>
+          <CircularProgress 
+            size={70} 
+            thickness={4}
+            sx={{
+              color: '#fff',
+              filter: 'drop-shadow(0 4px 20px rgba(255,255,255,0.3))'
+            }}
+          />
+          <Typography 
+            variant="h6"
+            sx={{ 
+              color: 'white',
+              fontWeight: 600,
+              letterSpacing: 1
+            }}
+          >
+            Đang tải sản phẩm...
+          </Typography>
         </Stack>
       </Box>
     );
   }
 
-  const products = productResponse?.items || [];
-  const hotProducts = products.filter((p) => p.stock < 5 || (p.stock < 5 && p.title.includes("Hot"))).slice(0, 5);
-
   const bannerSettings = {
     dots: true,
     infinite: true,
     autoplay: true,
-    speed: 1200,
-    autoplaySpeed: 6000,
+    speed: 800,
+    autoplaySpeed: 5000,
     slidesToShow: 1,
     slidesToScroll: 1,
     fade: true,
-    cssEase: 'cubic-bezier(0.87, 0, 0.13, 1)',
     pauseOnHover: true,
     appendDots: (dots: React.ReactNode) => (
       <Box sx={{ 
-        bottom: { xs: 15, md: 40 },
-        '& li': {
-          margin: '0 6px',
-        },
+        bottom: 20,
         '& li button': {
-          width: 12,
-          height: 12,
+          width: 10,
+          height: 10,
           borderRadius: '50%',
           background: 'rgba(255,255,255,0.5)',
-          transition: 'all 0.3s ease',
         },
         '& li.slick-active button': {
-          width: 40,
-          borderRadius: 6,
+          width: 30,
+          borderRadius: 5,
           background: 'white',
         }
       }}>
-        <ul style={{ margin: 0, padding: 0, display: 'flex', justifyContent: 'center' }}>{dots}</ul>
+        <ul style={{ margin: 0, padding: 0, display: 'flex', justifyContent: 'center', gap: '8px' }}>{dots}</ul>
       </Box>
     ),
   };
 
   return (
-    <Box sx={{ 
-      background: 'linear-gradient(180deg, #f0f4ff 0%, #ffffff 40%, #fafbff 100%)',
-      minHeight: '100vh',
-      position: 'relative',
-      overflow: 'hidden'
-    }}>
-      {/* Decorative Background Pattern */}
-      <Box sx={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: '100%',
-        background: `
-          radial-gradient(circle at 20% 30%, rgba(30, 60, 114, 0.03) 0%, transparent 40%),
-          radial-gradient(circle at 80% 70%, rgba(126, 34, 206, 0.03) 0%, transparent 40%)
-        `,
-        pointerEvents: 'none',
-        zIndex: 0
-      }} />
+    <Box
+        sx={{
+          backgroundColor: "#f5f7fb",
+          minHeight: "100vh",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        <Box
+        component="section"
+        sx={{
+          position: "relative",
+          overflow: "hidden",
+          background: "linear-gradient(135deg, #dbeafe 0%, #e0e7ff 45%, #fdf2f8 100%)",
+          py: { xs: 8, md: 12 },
+        }}
+      >
+        <Container maxWidth="xl" sx={{ position: "relative", zIndex: 1 }}>
+          <Grid container spacing={6} alignItems="center">
+            <Grid item xs={12} md={7}>
+              <Stack spacing={3}>
+                <Chip
+                  label="Giao diện mua sắm mới"
+                  sx={{
+                    width: "fit-content",
+                    fontWeight: 600,
+                    letterSpacing: 1,
+                    bgcolor: "rgba(255,255,255,0.7)",
+                    color: "#1e3a8a",
+                    borderRadius: 999,
+                    px: 2,
+                  }}
+                />
 
-      {/* Premium Hero Banner */}
-      <Box sx={{ 
-        mb: { xs: 6, md: 10 },
-        position: 'relative',
-        zIndex: 1
-      }}>
-        {hotProducts.length > 0 && (
-          <Box sx={{ 
-            position: 'relative',
-            '& .slick-slider': {
-              overflow: 'hidden'
-            }
-          }}>
+                <Typography
+                  variant="h2"
+                  sx={{
+                    fontWeight: 800,
+                    fontSize: { xs: "2.2rem", md: "3.5rem" },
+                    lineHeight: 1.2,
+                    color: "#0f172a",
+                  }}
+                >
+                  Chạm tới phong cách mới
+                  <br /> với {productResponse?.total?.toLocaleString("vi-VN") ?? ""} sản phẩm độc đáo
+                </Typography>
+
+                <Typography sx={{ color: "rgba(15,23,42,0.7)", maxWidth: 520, fontSize: { xs: "1rem", md: "1.1rem" } }}>
+                  Kho hàng thông minh kết hợp AI gợi ý, giúp bạn săn ưu đãi chỉ trong vài giây. Thiết kế mới chú trọng trải nghiệm
+                  thị giác, tốc độ và cảm giác tin cậy.
+                </Typography>
+
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                  <Button size="large" variant="contained" onClick={() => navigate("/products")} sx={{ borderRadius: 999, px: 4 }}>
+                    Khám phá ngay
+                  </Button>
+                  <Button
+                    size="large"
+                    variant="outlined"
+                    color="secondary"
+                    onClick={() => navigate("/favorites")}
+                    sx={{ borderRadius: 999, px: 4 }}
+                  >
+                    Bộ sưu tập của bạn
+                  </Button>
+                </Stack>
+
+                <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems="center">
+                  <TextField
+                    value={heroSearch}
+                    onChange={(e: ChangeEvent<HTMLInputElement>) => setHeroSearch(e.target.value)}
+                    onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleHeroSearch();
+                      }
+                    }}
+                    placeholder="Tìm kiếm sản phẩm, thương hiệu, danh mục..."
+                    fullWidth
+                    sx={{
+                      bgcolor: "white",
+                      borderRadius: 3,
+                      flex: 1,
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 3,
+                        px: 2,
+                        py: 0.5,
+                      },
+                    }}
+                    InputProps={{
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <SearchIcon sx={{ color: "#94a3b8" }} />
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  <Button
+                    size="large"
+                    variant="contained"
+                    color="secondary"
+                    sx={{ minWidth: { xs: "100%", md: 180 }, borderRadius: 2 }}
+                    onClick={handleHeroSearch}
+                  >
+                    Tìm kiếm nhanh
+                  </Button>
+                </Stack>
+
+                <Grid container spacing={2}>
+                  {heroStats.map((stat) => (
+                    <Grid item xs={12} sm={4} key={stat.label}>
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 2.5,
+                          borderRadius: 3,
+                          backgroundColor: "rgba(255,255,255,0.9)",
+                          border: "1px solid rgba(148,163,184,0.3)",
+                        }}
+                      >
+                        <Typography variant="h4" sx={{ fontWeight: 800, color: "#1d4ed8" }}>
+                          {stat.value}
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: "#475569", fontWeight: 600 }}>
+                          {stat.label}
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Stack>
+            </Grid>
+
+            <Grid item xs={12} md={5}>
+              <motion.div
+                initial={{ opacity: 0, y: 40 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6 }}
+              >
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 3,
+                    borderRadius: 4,
+                    bgcolor: "rgba(255,255,255,0.95)",
+                    border: "1px solid rgba(148,163,184,0.25)",
+                    boxShadow: "0 25px 70px rgba(15,23,42,0.12)",
+                  }}
+                >
+                  {spotlightProduct ? (
+                    <Stack spacing={3}>
+                      <Box
+                        component="img"
+                        src={spotlightProduct.images?.[0] || "https://via.placeholder.com/480x360?text=Product"}
+                        alt={spotlightProduct.title}
+                        sx={{
+                          width: "100%",
+                          height: { xs: 240, md: 280 },
+                          objectFit: "cover",
+                          borderRadius: 3,
+                        }}
+                      />
+                      <Stack spacing={1}>
+                        <Chip label="Đề xuất bởi AI" color="primary" sx={{ width: "fit-content" }} />
+                        <Typography variant="h5" sx={{ fontWeight: 700, color: "#0f172a" }}>
+                          {spotlightProduct.title}
+                        </Typography>
+                        <Typography sx={{ color: "#64748b" }}>
+                          {spotlightProduct.description?.slice(0, 90)}...
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 800, color: "#1d4ed8" }}>
+                          {spotlightProduct.price.toLocaleString("vi-VN")}₫
+                        </Typography>
+                      </Stack>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                        <Chip label={`Còn ${spotlightProduct.stock} sản phẩm`} color="secondary" sx={{ fontWeight: 600 }} />
+                        <Button fullWidth variant="contained" onClick={() => navigate(`/products/${spotlightProduct._id}`)}>
+                          Xem chi tiết
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  ) : (
+                    <Stack spacing={2} alignItems="center" textAlign="center">
+                      <Typography variant="h5" fontWeight={700}>
+                        Khởi động hành trình mua sắm
+                      </Typography>
+                      <Typography color="text.secondary">
+                        Cập nhật sản phẩm nổi bật ngay khi bạn khám phá danh mục.
+                      </Typography>
+                      <Button variant="contained" onClick={() => navigate("/products")}>Khám phá ngay</Button>
+                    </Stack>
+                  )}
+                </Paper>
+              </motion.div>
+            </Grid>
+          </Grid>
+        </Container>
+
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            backgroundImage: "radial-gradient(circle at 20% 20%, rgba(59,130,246,0.2), transparent 45%)",
+            opacity: 0.8,
+          }}
+        />
+      </Box>
+
+      <Container maxWidth="xl" sx={{ py: { xs: 5, md: 8 } }}>
+        <Grid container spacing={3}>
+          {featureHighlights.map((feature) => (
+            <Grid item xs={12} sm={6} md={3} key={feature.title}>
+              <Paper
+                elevation={0}
+                sx={{
+                  p: 3,
+                  borderRadius: 3,
+                  height: "100%",
+                  bgcolor: "white",
+                  border: "1px solid rgba(226,232,240,0.8)",
+                  boxShadow: "0 15px 40px rgba(15,23,42,0.08)",
+                }}
+              >
+                <Avatar sx={{ bgcolor: "#e0f2fe", color: "#0369a1", mb: 2 }}>
+                  <feature.icon />
+                </Avatar>
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                  {feature.title}
+                </Typography>
+                <Typography sx={{ color: "text.secondary", lineHeight: 1.6 }}>{feature.description}</Typography>
+              </Paper>
+            </Grid>
+          ))}
+        </Grid>
+      </Container>
+
+      {featuredCategories.length > 0 && (
+        <Container maxWidth="xl" sx={{ pb: { xs: 5, md: 7 } }}>
+          <Paper
+            elevation={0}
+            sx={{
+              p: { xs: 3, md: 4 },
+              borderRadius: 4,
+              background: "linear-gradient(120deg, rgba(255,255,255,0.95), rgba(219,234,254,0.9))",
+              border: "1px solid rgba(148,163,184,0.3)",
+            }}
+          >
+            <Stack spacing={2}>
+              <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                Danh mục được yêu thích
+              </Typography>
+              <Typography color="text.secondary">
+                Chạm nhanh vào danh mục bạn quan tâm để xem toàn bộ sản phẩm liên quan.
+              </Typography>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>
+                {featuredCategories.map((cat) => (
+                  <Chip
+                    key={cat}
+                    label={cat}
+                    onClick={() => navigate(`/products?category=${encodeURIComponent(cat)}`)}
+                    sx={{
+                      borderRadius: 999,
+                      px: 2,
+                      fontWeight: 600,
+                      bgcolor: "white",
+                      border: "1px solid rgba(148,163,184,0.4)",
+                    }}
+                  />
+                ))}
+              </Box>
+            </Stack>
+          </Paper>
+        </Container>
+      )}
+
+      {trendingProducts.length > 0 && (
+        <Container maxWidth="xl" sx={{ pb: { xs: 5, md: 7 } }}>
+          <Stack spacing={3}>
+            <Box textAlign="center">
+              <Typography variant="overline" sx={{ letterSpacing: 4, color: "#6366f1", fontWeight: 700 }}>
+                Xu hướng tuần này
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800, mt: 1 }}>
+                Được tìm kiếm nhiều nhất
+              </Typography>
+            </Box>
+            <Grid container spacing={3}>
+              {trendingProducts.map((product) => (
+                <Grid item xs={12} md={4} key={product._id}>
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      p: 3,
+                      borderRadius: 3,
+                      height: "100%",
+                      bgcolor: "white",
+                      border: "1px solid rgba(226,232,240,0.9)",
+                      boxShadow: "0 20px 40px rgba(15,23,42,0.1)",
+                    }}
+                  >
+                    <Stack spacing={2}>
+                      <Box
+                        component="img"
+                        src={product.images?.[0] || "https://via.placeholder.com/400x240?text=Product"}
+                        alt={product.title}
+                        sx={{ width: "100%", height: 220, objectFit: "cover", borderRadius: 2 }}
+                      />
+                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                        {product.title}
+                      </Typography>
+                      <Typography color="text.secondary" sx={{ minHeight: 48 }}>
+                        {product.description?.slice(0, 100)}...
+                      </Typography>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Typography variant="h5" sx={{ fontWeight: 800, color: "#0f172a" }}>
+                          {product.price.toLocaleString("vi-VN")}₫
+                        </Typography>
+                        <Button variant="text" onClick={() => navigate(`/products/${product._id}`)}>
+                          Khám phá
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                </Grid>
+              ))}
+            </Grid>
+          </Stack>
+        </Container>
+      )}
+
+      {hotProducts.length > 0 && (
+        <Container maxWidth="xl" sx={{ pb: { xs: 6, md: 8 } }}>
+          <Stack spacing={2} alignItems="center" textAlign="center" sx={{ mb: 3 }}>
+            <Typography variant="overline" sx={{ letterSpacing: 4, color: "#f97316", fontWeight: 700 }}>
+              Spotlight
+            </Typography>
+            <Typography variant="h4" sx={{ fontWeight: 800 }}>
+              Sản phẩm đang cháy hàng
+            </Typography>
+            <Typography color="text.secondary" maxWidth={620}>
+              Bộ sưu tập được chọn bằng thuật toán bán chạy & lượt xem thực tế, cập nhật liên tục.
+            </Typography>
+          </Stack>
+          <Box sx={{ borderRadius: 4, overflow: "hidden", boxShadow: "0 30px 60px rgba(15,23,42,0.15)" }}>
             <Slider {...bannerSettings}>
               {hotProducts.map((product) => (
                 <Box key={product._id}>
                   <Box
                     sx={{
-                      height: { xs: 350, sm: 500, md: 600 },
-                      position: 'relative',
-                      background: `
-                        linear-gradient(135deg, 
-                          rgba(30, 60, 114, 0.92) 0%, 
-                          rgba(42, 82, 152, 0.88) 35%,
-                          rgba(126, 34, 206, 0.85) 100%
-                        ), 
-                        url(${product.images?.[0] || 'https://via.placeholder.com/1920x600'}) center/cover
-                      `,
-                      display: 'flex',
-                      alignItems: 'center',
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        background: `
-                          radial-gradient(circle at 30% 40%, rgba(255,255,255,0.15) 0%, transparent 50%),
-                          radial-gradient(circle at 70% 60%, rgba(126, 34, 206, 0.2) 0%, transparent 50%)
-                        `,
-                      },
-                      '&::after': {
-                        content: '""',
-                        position: 'absolute',
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        height: '30%',
-                        background: 'linear-gradient(to top, rgba(0,0,0,0.4), transparent)',
-                      }
+                      height: { xs: 320, sm: 380, md: 420 },
+                      position: "relative",
+                      background: `linear-gradient(135deg, rgba(15,23,42,0.75), rgba(30,64,175,0.85)), url(${product.images?.[0] || "https://via.placeholder.com/1920x600"}) center/cover`,
+                      display: "flex",
+                      alignItems: "center",
                     }}
                   >
-                    <Container maxWidth="lg" sx={{ position: 'relative', zIndex: 3 }}>
-                      <Grid container alignItems="center" spacing={4}>
-                        <Grid item xs={12} md={7}>
-                          <motion.div
-                            initial={{ opacity: 0, x: -50 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ duration: 0.8, delay: 0.2 }}
-                          >
-                            <Stack spacing={3}>
-                              {/* Premium Badge */}
-                              <Box>
-                                <Chip 
-                                  label="🔥 GIỚI HẠN - ĐANG HOT" 
-                                  sx={{ 
-                                    bgcolor: 'rgba(255, 59, 48, 0.95)',
-                                    color: 'white',
-                                    fontWeight: 800,
-                                    fontSize: '0.85rem',
-                                    px: 2.5,
-                                    py: 0.3,
-                                    height: 36,
-                                    backdropFilter: 'blur(10px)',
-                                    border: '2px solid rgba(255,255,255,0.3)',
-                                    boxShadow: '0 4px 20px rgba(255, 59, 48, 0.4)',
-                                    letterSpacing: 1
-                                  }}
-                                />
-                              </Box>
-
-                              {/* Product Title */}
-                              <Typography
-                                variant="h1"
+                    <Container maxWidth="lg">
+                      <Grid container alignItems="center">
+                        <Grid item xs={12} md={8}>
+                          <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+                            <Stack spacing={2.5}>
+                              <Chip
+                                label="🔥 Đang được săn đón"
                                 sx={{
-                                  color: 'white',
-                                  fontWeight: 900,
-                                  fontSize: { xs: '2.2rem', sm: '3.5rem', md: '4.5rem' },
-                                  textShadow: '0 4px 30px rgba(0,0,0,0.5)',
-                                  letterSpacing: '-1.5px',
-                                  lineHeight: 1.1,
-                                  maxWidth: '700px',
-                                  mb: 2
+                                  bgcolor: "rgba(255,255,255,0.25)",
+                                  color: "white",
+                                  fontWeight: 700,
+                                  width: "fit-content",
+                                  backdropFilter: "blur(6px)",
                                 }}
-                              >
+                              />
+                              <Typography variant="h3" sx={{ color: "white", fontWeight: 800, lineHeight: 1.1 }}>
                                 {product.title}
                               </Typography>
-
-                              {/* Description */}
-                              <Typography
-                                variant="h6"
-                                sx={{
-                                  color: 'rgba(255,255,255,0.95)',
-                                  fontWeight: 400,
-                                  fontSize: { xs: '1rem', md: '1.2rem' },
-                                  maxWidth: '600px',
-                                  lineHeight: 1.6,
-                                  textShadow: '0 2px 10px rgba(0,0,0,0.3)'
-                                }}
-                              >
-                                {product.description?.slice(0, 120)}...
+                              <Typography sx={{ color: "rgba(255,255,255,0.85)", fontSize: { xs: "0.95rem", md: "1.05rem" }, maxWidth: 640 }}>
+                                {product.description?.slice(0, 110)}...
                               </Typography>
-
-                              {/* Price & CTA */}
-                              <Stack direction="row" spacing={3} alignItems="center" sx={{ mt: 2 }}>
-                                <Paper
-                                  elevation={0}
-                                  sx={{ 
-                                    bgcolor: 'white',
-                                    px: 4,
-                                    py: 2,
-                                    borderRadius: 3,
-                                    boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
-                                    border: '3px solid rgba(126, 34, 206, 0.3)'
-                                  }}
-                                >
-                                  <Typography 
-                                    sx={{ 
-                                      fontSize: '0.75rem',
-                                      fontWeight: 600,
-                                      color: 'text.secondary',
-                                      mb: 0.5,
-                                      textTransform: 'uppercase',
-                                      letterSpacing: 1
-                                    }}
-                                  >
-                                    Chỉ từ
+                              <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
+                                <Paper sx={{ px: 3, py: 1.5, borderRadius: 3, bgcolor: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.3)" }}>
+                                  <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.7)", letterSpacing: 1 }}>
+                                    GIÁ HIỆN TẠI
                                   </Typography>
-                                  <Typography
-                                    sx={{
-                                      background: 'linear-gradient(135deg, #1e3c72 0%, #7e22ce 100%)',
-                                      WebkitBackgroundClip: 'text',
-                                      WebkitTextFillColor: 'transparent',
-                                      fontWeight: 900,
-                                      fontSize: { xs: '1.8rem', md: '2.5rem' },
-                                      lineHeight: 1
-                                    }}
-                                  >
-                                    {product.price.toLocaleString('vi-VN')}₫
+                                  <Typography variant="h4" sx={{ color: "white", fontWeight: 800 }}>
+                                    {product.price.toLocaleString("vi-VN")}₫
                                   </Typography>
                                 </Paper>
-
                                 {product.stock < 10 && (
                                   <Chip
                                     label={`Chỉ còn ${product.stock} sản phẩm`}
-                                    sx={{
-                                      bgcolor: 'rgba(255, 204, 0, 0.95)',
-                                      color: '#1e3c72',
-                                      fontWeight: 700,
-                                      fontSize: '0.9rem',
-                                      height: 40,
-                                      px: 2,
-                                      backdropFilter: 'blur(10px)',
-                                      boxShadow: '0 4px 15px rgba(255, 204, 0, 0.4)'
-                                    }}
+                                    sx={{ bgcolor: "rgba(251,191,36,0.9)", fontWeight: 700 }}
                                   />
                                 )}
+                                <Button variant="contained" color="secondary" onClick={() => navigate(`/products/${product._id}`)}>
+                                  Mua ngay
+                                </Button>
                               </Stack>
                             </Stack>
                           </motion.div>
                         </Grid>
                       </Grid>
                     </Container>
-
-                    {/* Floating Decorative Elements */}
-                    <motion.div
-                      animate={{ 
-                        y: [0, -20, 0],
-                        rotate: [0, 5, 0]
-                      }}
-                      transition={{ 
-                        duration: 6,
-                        repeat: Infinity,
-                        ease: "easeInOut"
-                      }}
-                      style={{
-                        position: 'absolute',
-                        top: '10%',
-                        right: '10%',
-                        zIndex: 1
-                      }}
-                    >
-                      <Box sx={{
-                        width: { xs: 80, md: 120 },
-                        height: { xs: 80, md: 120 },
-                        borderRadius: '30% 70% 70% 30% / 30% 30% 70% 70%',
-                        background: 'rgba(255,255,255,0.1)',
-                        backdropFilter: 'blur(20px)',
-                        border: '1px solid rgba(255,255,255,0.2)',
-                      }} />
-                    </motion.div>
-
-                    <motion.div
-                      animate={{ 
-                        y: [0, 20, 0],
-                        rotate: [0, -5, 0]
-                      }}
-                      transition={{ 
-                        duration: 7,
-                        repeat: Infinity,
-                        ease: "easeInOut",
-                        delay: 1
-                      }}
-                      style={{
-                        position: 'absolute',
-                        bottom: '15%',
-                        right: '5%',
-                        zIndex: 1
-                      }}
-                    >
-                      <Box sx={{
-                        width: { xs: 60, md: 90 },
-                        height: { xs: 60, md: 90 },
-                        borderRadius: '50%',
-                        background: 'rgba(126, 34, 206, 0.2)',
-                        backdropFilter: 'blur(15px)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                      }} />
-                    </motion.div>
                   </Box>
                 </Box>
               ))}
             </Slider>
           </Box>
-        )}
-      </Box>
+        </Container>
+      )}
 
-      {/* Main Products Section */}
-      <Container maxWidth="xl" sx={{ py: { xs: 4, md: 8 }, position: 'relative', zIndex: 1 }}>
-        <Fade in timeout={800}>
+      <Container maxWidth="xl" sx={{ pb: { xs: 8, md: 10 } }}>
+        <Fade in timeout={600}>
           <Box>
-            {/* Premium Section Header */}
-            <Box sx={{ 
-              textAlign: 'center',
-              mb: { xs: 5, md: 8 },
-              position: 'relative'
-            }}>
-              <motion.div
-                initial={{ opacity: 0, y: 30 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.7 }}
-              >
-                <Stack spacing={2} alignItems="center">
-                  {/* Small label */}
-                  <Typography
-                    sx={{
-                      color: '#7e22ce',
-                      fontWeight: 700,
-                      fontSize: '0.95rem',
-                      textTransform: 'uppercase',
-                      letterSpacing: 3
-                    }}
-                  >
-                    Bộ sưu tập
-                  </Typography>
+            <Stack spacing={1.5} alignItems="center" textAlign="center" sx={{ mb: { xs: 4, md: 6 } }}>
+              <Typography variant="overline" sx={{ letterSpacing: 4, color: "#818cf8", fontWeight: 700 }}>
+                Bộ sưu tập nổi bật
+              </Typography>
+              <Typography variant="h3" sx={{ fontWeight: 800 }}>
+                Được chọn riêng cho bạn
+              </Typography>
+              <Typography color="text.secondary" maxWidth={620}>
+                Tối ưu bằng dữ liệu thực tế: tồn kho, đánh giá và mức độ yêu thích của cộng đồng.
+              </Typography>
+              <Button variant="outlined" onClick={() => navigate("/products")} sx={{ borderRadius: 999 }}>
+                Xem tất cả sản phẩm →
+              </Button>
+            </Stack>
 
-                  {/* Main Title */}
-                  <Typography
-                    variant="h2"
-                    sx={{
-                      fontWeight: 900,
-                      background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e22ce 100%)',
-                      WebkitBackgroundClip: 'text',
-                      WebkitTextFillColor: 'transparent',
-                      fontSize: { xs: '2.5rem', md: '4rem' },
-                      letterSpacing: '-2px',
-                      lineHeight: 1.1
-                    }}
-                  >
-                    Sản phẩm nổi bật
-                  </Typography>
-
-                  {/* Subtitle */}
-                  <Typography 
-                    variant="h6" 
-                    sx={{ 
-                      color: 'text.secondary',
-                      fontWeight: 400,
-                      fontSize: { xs: '1rem', md: '1.2rem' },
-                      maxWidth: '700px',
-                      lineHeight: 1.7
-                    }}
-                  >
-                    Khám phá những sản phẩm được tuyển chọn kỹ lưỡng, đáp ứng mọi nhu cầu của bạn với chất lượng vượt trội
-                  </Typography>
-                </Stack>
-              </motion.div>
-              
-              {/* Decorative Accent */}
-              <Box sx={{
-                width: 100,
-                height: 5,
-                background: 'linear-gradient(90deg, transparent, #7e22ce, transparent)',
-                margin: '30px auto 0',
-                borderRadius: 10,
-                position: 'relative',
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  top: -3,
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: 20,
-                  height: 11,
-                  background: '#7e22ce',
-                  borderRadius: '50%',
-                  filter: 'blur(3px)'
-                }
-              }} />
-            </Box>
-
-            {/* Products Grid */}
-            {products.length === 0 ? (
-              <Paper 
+            {curatedProducts.length === 0 ? (
+              <Paper
                 elevation={0}
-                sx={{ 
-                  textAlign: 'center', 
-                  py: 12,
-                  background: 'rgba(255,255,255,0.6)',
-                  borderRadius: 4,
-                  border: '2px dashed rgba(30, 60, 114, 0.1)',
-                  backdropFilter: 'blur(10px)'
+                sx={{
+                  textAlign: "center",
+                  py: 10,
+                  background: "white",
+                  borderRadius: 3,
+                  border: "2px dashed #e0e7ff",
                 }}
               >
-                <Typography 
-                  variant="h5" 
-                  sx={{ 
-                    color: 'text.secondary',
-                    fontWeight: 500,
-                    mb: 1
-                  }}
-                >
+                <Typography variant="h6" sx={{ color: "text.secondary" }}>
                   Không có sản phẩm nào
-                </Typography>
-                <Typography 
-                  sx={{ 
-                    color: 'text.secondary',
-                    fontSize: '1rem'
-                  }}
-                >
-                  Vui lòng quay lại sau để khám phá các sản phẩm mới
                 </Typography>
               </Paper>
             ) : (
-              <Grid container spacing={{ xs: 2, sm: 3, md: 4 }}>
-                {products.map((product, index) => {
+              <Grid container spacing={{ xs: 2, sm: 2.5, md: 3 }}>
+                {curatedProducts.map((product, index) => {
                   const productCard: ProductCardType = {
                     id: String(product._id),
                     name: product.title,
                     price: product.price,
                     images: product.images,
+                    videos: product.videos,
                     category: Array.isArray(product.categories)
                       ? product.categories.join(", ")
                       : product.categories ?? "",
@@ -533,53 +677,31 @@ export default function Home() {
                     stock: product.stock,
                     rating: product.Rating ?? 0,
                     features: product.stock < 5 ? ["Hot"] : [],
+                    isFavorite: user?.favorites?.includes(String(product._id)) ?? false,
                   };
 
                   return (
                     <Grid item xs={12} sm={6} md={4} lg={3} key={product._id}>
                       <motion.div
-                        initial={{ opacity: 0, y: 40 }}
+                        initial={{ opacity: 0, y: 30 }}
                         animate={{ opacity: 1, y: 0 }}
-                        transition={{
-                          duration: 0.6,
-                          delay: index * 0.08,
-                          ease: [0.25, 0.46, 0.45, 0.94]
-                        }}
-                        whileHover={{ 
-                          y: -12,
-                          transition: { duration: 0.3, ease: "easeOut" }
-                        }}
+                        transition={{ duration: 0.4, delay: index * 0.05 }}
+                        whileHover={{ y: -8, transition: { duration: 0.2 } }}
                       >
                         <Paper
                           elevation={0}
                           sx={{
-                            height: '100%',
-                            background: 'rgba(255,255,255,0.9)',
-                            borderRadius: 4,
-                            overflow: 'hidden',
-                            boxShadow: '0 4px 20px rgba(30, 60, 114, 0.08)',
-                            border: '1px solid rgba(30, 60, 114, 0.05)',
-                            transition: 'all 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                            backdropFilter: 'blur(10px)',
-                            position: 'relative',
-                            '&::before': {
-                              content: '""',
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              height: '4px',
-                              background: 'linear-gradient(90deg, #1e3c72, #7e22ce)',
-                              opacity: 0,
-                              transition: 'opacity 0.3s'
+                            height: "100%",
+                            background: "white",
+                            borderRadius: 3,
+                            overflow: "hidden",
+                            boxShadow: "0 2px 12px rgba(102, 126, 234, 0.08)",
+                            border: "1px solid rgba(102, 126, 234, 0.08)",
+                            transition: "all 0.3s ease",
+                            "&:hover": {
+                              boxShadow: "0 12px 40px rgba(102, 126, 234, 0.15)",
+                              borderColor: "rgba(102, 126, 234, 0.2)",
                             },
-                            '&:hover': {
-                              boxShadow: '0 20px 60px rgba(30, 60, 114, 0.15), 0 0 0 1px rgba(126, 34, 206, 0.1)',
-                              transform: 'translateY(-2px)',
-                              '&::before': {
-                                opacity: 1
-                              }
-                            }
                           }}
                         >
                           <ProductCard product={productCard} />
@@ -593,43 +715,6 @@ export default function Home() {
           </Box>
         </Fade>
       </Container>
-
-      {/* Premium Floating Background Elements */}
-      <Box sx={{
-        position: 'fixed',
-        top: '10%',
-        right: '-5%',
-        width: 400,
-        height: 400,
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(126, 34, 206, 0.05) 0%, transparent 70%)',
-        filter: 'blur(80px)',
-        zIndex: 0,
-        pointerEvents: 'none',
-        animation: 'floatSlow 15s ease-in-out infinite',
-        '@keyframes floatSlow': {
-          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
-          '50%': { transform: 'translate(-30px, -30px) scale(1.1)' }
-        }
-      }} />
-
-      <Box sx={{
-        position: 'fixed',
-        bottom: '5%',
-        left: '-10%',
-        width: 500,
-        height: 500,
-        borderRadius: '50%',
-        background: 'radial-gradient(circle, rgba(30, 60, 114, 0.04) 0%, transparent 70%)',
-        filter: 'blur(90px)',
-        zIndex: 0,
-        pointerEvents: 'none',
-        animation: 'floatReverse 18s ease-in-out infinite',
-        '@keyframes floatReverse': {
-          '0%, 100%': { transform: 'translate(0, 0) scale(1)' },
-          '50%': { transform: 'translate(40px, 40px) scale(1.15)' }
-        }
-      }} />
     </Box>
   );
 }

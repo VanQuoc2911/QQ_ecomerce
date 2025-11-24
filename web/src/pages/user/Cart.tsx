@@ -1,40 +1,143 @@
+import ConfirmationNumberOutlinedIcon from "@mui/icons-material/ConfirmationNumberOutlined";
 import DeleteIcon from "@mui/icons-material/Delete";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import LocalOfferOutlinedIcon from "@mui/icons-material/LocalOfferOutlined";
-import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
 import ShoppingCartCheckoutIcon from "@mui/icons-material/ShoppingCartCheckout";
-import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import {
   Box,
   Button,
   Chip,
   CircularProgress,
   Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   IconButton,
+  LinearProgress,
   Paper,
+  Stack,
   TextField,
+  Tooltip,
   Typography,
-  useTheme,
+  useTheme
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 import { cartService, type CartResponse } from "../../api/cartService";
+import { productService } from "../../api/productService";
+import { voucherService, type AppliedVoucherResult, type UserVoucher, type VoucherSuggestion } from "../../api/voucherService";
+
+const AI_IMAGE_ENDPOINT = "https://image.pollinations.ai/prompt/";
 
 export default function CartPage() {
   const [cart, setCart] = useState<CartResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
-  const theme = useTheme();
+  const [userVouchers, setUserVouchers] = useState<UserVoucher[]>([]);
+  const [voucherDialogOpen, setVoucherDialogOpen] = useState(false);
+  const [voucherDetail, setVoucherDetail] = useState<UserVoucher | null>(null);
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  const [voucherError, setVoucherError] = useState<string | null>(null);
+  const [applyingVoucherCode, setApplyingVoucherCode] = useState<string | null>(null);
+  const [selectedVoucher, setSelectedVoucher] = useState<AppliedVoucherResult | null>(null);
+  const [bestVoucher, setBestVoucher] = useState<VoucherSuggestion | null>(null);
+  const [bestVoucherLoading, setBestVoucherLoading] = useState(false);
+  const [bestVoucherError, setBestVoucherError] = useState<string | null>(null);
+  const [manualVoucherCode, setManualVoucherCode] = useState("");
+  const [manualVoucherError, setManualVoucherError] = useState<string | null>(null);
 
+  const theme = useTheme();
+  const navigate = useNavigate();
+  const selectedVoucherCode = selectedVoucher?.code ?? null;
+
+  const formatCurrency = useCallback((value: number) => `${value.toLocaleString("vi-VN")}₫`, []);
+  const formatDate = useCallback((value?: string | null) => {
+    if (!value) return "Không giới hạn";
+    return new Date(value).toLocaleDateString("vi-VN");
+  }, []);
+
+  const buildVoucherPrompt = useCallback(
+    (voucher: { code?: string; type?: string; value?: number; highlightText?: string }) => {
+      const discountText = voucher.type === "percent" ? `${voucher.value}% off` : `giảm ${formatCurrency(voucher.value ?? 0)}`;
+      return [
+        "poster flash sale",
+        `voucher ${voucher.code || "QQSALE"}`,
+        discountText,
+        voucher.highlightText || "ưu đãi hấp dẫn",
+        "gradient neon background, shopping icons, confetti, 3d lighting, no people",
+      ].join(", ");
+    },
+    [formatCurrency],
+  );
+
+  const getVoucherImageUrl = useCallback(
+    (voucher: { code?: string; highlightText?: string; type?: string; value?: number }) => {
+      const prompt = encodeURIComponent(buildVoucherPrompt(voucher));
+      const seed = voucher.code ? voucher.code.length * 7919 : Date.now();
+      return `${AI_IMAGE_ENDPOINT}${prompt}?width=640&height=360&seed=${seed}&nologo=true`;
+    },
+    [buildVoucherPrompt],
+  );
+
+  const describeVoucherDetail = useCallback(
+    (voucher?: Partial<UserVoucher>) => {
+      if (!voucher) return "";
+      const segments: string[] = [];
+
+      switch (voucher.targetType) {
+        case "category":
+          if (voucher.targetCategories?.length) {
+            segments.push(`Áp dụng cho danh mục: ${voucher.targetCategories.join(", ")}`);
+          } else {
+            segments.push("Áp dụng cho một số danh mục cụ thể");
+          }
+          break;
+        case "product":
+          if (voucher.targetProducts?.length) {
+            segments.push(`Áp dụng cho ${voucher.targetProducts.length} sản phẩm được chỉ định`);
+          } else {
+            segments.push("Áp dụng cho một số sản phẩm cụ thể");
+          }
+          break;
+        default:
+          segments.push("Áp dụng cho toàn bộ sản phẩm hợp lệ");
+          break;
+      }
+
+      if (voucher.minOrderValue) {
+        segments.push(`Đơn tối thiểu ${formatCurrency(voucher.minOrderValue)}`);
+      }
+      if (voucher.maxDiscount) {
+        segments.push(`Giảm tối đa ${formatCurrency(voucher.maxDiscount)}`);
+      }
+      if (voucher.stackable !== undefined) {
+        segments.push(voucher.stackable ? "Có thể gộp với voucher khác" : "Không thể gộp cùng voucher khác");
+      }
+
+      return segments.join(". ");
+    },
+    [formatCurrency],
+  );
+
+  const voucherDetailDescription = voucherDetail ? describeVoucherDetail(voucherDetail) : "";
+
+  // ✅ Fetch Cart
   const fetchCart = async () => {
     try {
       setLoading(true);
       const data = await cartService.getCart();
       setCart(data);
     } catch (err) {
-      console.error("❌ Lỗi khi lấy giỏ hàng:", err);
-      alert("Không thể tải giỏ hàng. Vui lòng đăng nhập!");
+      console.error("Lỗi fetch giỏ hàng:", err);
+      toast.error("❌ Không thể tải giỏ hàng, vui lòng đăng nhập!", {
+        position: "top-right",
+        autoClose: 3000,
+      });
     } finally {
       setLoading(false);
     }
@@ -44,37 +147,219 @@ export default function CartPage() {
     fetchCart();
   }, []);
 
+  // ✅ Update Quantity
   const handleUpdateQuantity = async (productId: string, quantity: number) => {
     if (!cart) return;
     if (quantity < 1) return;
+
+    // Kiểm tra tồn kho phía client trước khi gửi request
     setUpdatingItemId(productId);
     try {
+      try {
+        const prod = await productService.getProductById(productId);
+        if (quantity > prod.stock) {
+          // Nếu vượt quá tồn kho, thông báo và cập nhật lại giỏ với giới hạn tối đa
+          toast.warning(`📦 Sản phẩm chỉ còn ${prod.stock} sản phẩm. Vui lòng điều chỉnh số lượng.`, {
+            position: "top-right",
+            autoClose: 3000,
+          });
+          // Nếu hiện có trong giỏ, fetchCart sẽ lấy lại số lượng hiện hành từ server
+          await fetchCart();
+          return;
+        }
+      } catch (err) {
+        // Nếu không lấy được thông tin sản phẩm, vẫn cố gắng gọi API (server sẽ kiểm tra)
+        console.warn("Không thể lấy thông tin sản phẩm để kiểm tra tồn kho:", err);
+      }
+
       await cartService.updateQuantity({ productId, quantity });
       await fetchCart();
-      window.dispatchEvent(new Event("cartUpdated"));
+      // cartService đã dispatch event, nhưng fetchCart sẽ cập nhật local state
     } catch (err) {
-      console.error("❌ Lỗi cập nhật số lượng:", err);
-      alert("Cập nhật số lượng thất bại!");
+      console.error("Lỗi cập nhật số lượng:", err);
+      // Hiển thị lỗi server trả về (ví dụ vượt tồn kho)
+      const message = err instanceof Error ? err.message : String(err) || "Cập nhật số lượng thất bại!";
+      toast.error(`❌ ${message}`, {
+        position: "top-right",
+        autoClose: 3000,
+      });
     } finally {
       setUpdatingItemId(null);
     }
   };
 
+  // ✅ Remove Item
   const handleRemoveItem = async (productId: string) => {
-    if (!cart) return;
     try {
       await cartService.removeFromCart(productId);
       await fetchCart();
-      window.dispatchEvent(new Event("cartUpdated"));
+      // cartService đã dispatch event, nhưng fetchCart sẽ cập nhật local state
+      toast.success("✅ Đã xóa sản phẩm khỏi giỏ!", {
+        position: "top-right",
+        autoClose: 2000,
+      });
     } catch (err) {
-      console.error("❌ Lỗi xóa sản phẩm:", err);
-      alert("Xóa sản phẩm thất bại!");
+      console.error("Lỗi xóa sản phẩm:", err);
+      toast.error("❌ Xóa sản phẩm thất bại!", {
+        position: "top-right",
+        autoClose: 3000,
+      });
     }
   };
 
-  const totalPrice =
-    cart?.items.reduce((acc, item) => acc + item.price * item.quantity, 0) ?? 0;
+  // ✅ Tính tổng tiền
+  const totalPrice = useMemo(() => {
+    if (!cart) return 0;
+    return cart.items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  }, [cart]);
 
+  const voucherDiscount = selectedVoucher?.discount ?? 0;
+  const finalTotal = Math.max(0, totalPrice - voucherDiscount);
+
+  const loadUserVouchers = useCallback(
+    async (total: number) => {
+      try {
+        setVoucherError(null);
+        setVoucherLoading(true);
+        const vouchers = await voucherService.getMyVouchers(
+          total > 0 ? { total } : undefined,
+        );
+        setUserVouchers(vouchers);
+      } catch (err) {
+        console.error("Lỗi tải voucher:", err);
+        setUserVouchers([]);
+        setVoucherError("Không thể tải voucher. Vui lòng thử lại sau.");
+      } finally {
+        setVoucherLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!cart) return;
+    void loadUserVouchers(totalPrice);
+  }, [cart, loadUserVouchers, totalPrice]);
+
+  useEffect(() => {
+    if (!cart?.items?.length || totalPrice <= 0) {
+      setBestVoucher(null);
+      return;
+    }
+
+    const normalizedItems = cart.items
+      .map((item) => {
+        const productId = item.productId?._id;
+        if (!productId) return null;
+        return {
+          productId,
+          quantity: item.quantity || 1,
+          price: item.price ?? item.productId.price ?? 0,
+        };
+      })
+      .filter((entry): entry is { productId: string; quantity: number; price: number } => Boolean(entry));
+
+    if (!normalizedItems.length) {
+      setBestVoucher(null);
+      return;
+    }
+
+    let cancelled = false;
+    setBestVoucherLoading(true);
+    setBestVoucherError(null);
+
+    voucherService
+      .getBestVoucherSuggestion(normalizedItems)
+      .then((suggestion) => {
+        if (cancelled) return;
+        setBestVoucher(suggestion);
+      })
+      .catch((err) => {
+        console.error("Lỗi gợi ý voucher tốt nhất:", err);
+        if (cancelled) return;
+        setBestVoucher(null);
+        setBestVoucherError("Không tìm được voucher phù hợp cho giỏ hàng này");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setBestVoucherLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cart, totalPrice]);
+
+  useEffect(() => {
+    if (!selectedVoucherCode) return;
+    const revalidateVoucher = async () => {
+      try {
+        const refreshed = await voucherService.applyVoucher({ code: selectedVoucherCode, total: totalPrice });
+        setSelectedVoucher(refreshed);
+      } catch (err) {
+        console.warn("Voucher không còn áp dụng:", err);
+        setSelectedVoucher(null);
+      }
+    };
+    void revalidateVoucher();
+  }, [selectedVoucherCode, totalPrice]);
+
+  const applyVoucherCode = async (code: string, options?: { closeDialog?: boolean }) => {
+    try {
+      setApplyingVoucherCode(code);
+      const applied = await voucherService.applyVoucher({ code, total: totalPrice });
+      setSelectedVoucher(applied);
+      toast.success(`✅ Đã áp dụng voucher ${code}!`, {
+        position: "top-right",
+        autoClose: 2000,
+      });
+      if (options?.closeDialog ?? true) {
+        setVoucherDialogOpen(false);
+      }
+    } catch (err) {
+      console.error("Lỗi áp dụng voucher:", err);
+      const message = err instanceof Error ? err.message : "Không thể áp dụng voucher";
+      toast.error(`❌ ${message}`, {
+        position: "top-right",
+        autoClose: 3000,
+      });
+    } finally {
+      setApplyingVoucherCode(null);
+    }
+  };
+
+  const handleApplyVoucher = async (voucher: UserVoucher) => {
+    await applyVoucherCode(voucher.code, { closeDialog: true });
+  };
+
+  const handleApplyBestVoucher = async (code: string) => {
+    await applyVoucherCode(code, { closeDialog: false });
+  };
+
+  const handleApplyManualVoucher = async () => {
+    const raw = manualVoucherCode.trim().toUpperCase();
+    if (!raw) {
+      setManualVoucherError("Vui lòng nhập mã voucher");
+      return;
+    }
+    setManualVoucherError(null);
+    await applyVoucherCode(raw, { closeDialog: false });
+    setManualVoucherCode("");
+  };
+
+  const showVoucherDetail = (voucher: Partial<UserVoucher> & { code: string }) => {
+    setVoucherDetail(voucher as UserVoucher);
+  };
+
+  const handleRemoveVoucher = () => {
+    setSelectedVoucher(null);
+    toast.info("Đã bỏ voucher đang áp dụng", {
+      position: "top-right",
+      autoClose: 2000,
+    });
+  };
+
+  // ✅ Loading UI
   if (loading) {
     return (
       <Box
@@ -83,228 +368,36 @@ export default function CartPage() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background:
-            theme.palette.mode === "dark"
-              ? "linear-gradient(135deg, #0a1929 0%, #1a2942 100%)"
-              : "linear-gradient(135deg, #e3f2fd 0%, #ffffff 100%)",
         }}
       >
-        <Box sx={{ textAlign: "center" }}>
-          <Box
-            sx={{
-              position: "relative",
-              width: 100,
-              height: 100,
-              margin: "0 auto 30px",
-            }}
-          >
-            <CircularProgress
-              size={100}
-              thickness={2}
-              sx={{
-                color: "primary.main",
-                position: "absolute",
-                animation: "pulse 1.5s ease-in-out infinite",
-                "@keyframes pulse": {
-                  "0%, 100%": { opacity: 1 },
-                  "50%": { opacity: 0.5 },
-                },
-              }}
-            />
-          </Box>
-          <Typography
-            variant="h5"
-            fontWeight={600}
-            sx={{
-              background: "linear-gradient(90deg, #1976d2, #42a5f5)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            }}
-          >
-            Đang tải giỏ hàng của bạn...
-          </Typography>
-        </Box>
+        <CircularProgress size={80} />
       </Box>
     );
   }
 
+  // ✅ Empty cart UI
   if (!cart || cart.items.length === 0) {
     return (
-      <Box
-        sx={{
-          minHeight: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          background:
-            theme.palette.mode === "dark"
-              ? "linear-gradient(135deg, #0a1929 0%, #1a2942 100%)"
-              : "linear-gradient(135deg, #e3f2fd 0%, #ffffff 100%)",
-          position: "relative",
-          overflow: "hidden",
-          "&::before": {
-            content: '""',
-            position: "absolute",
-            width: 400,
-            height: 400,
-            background: "radial-gradient(circle, rgba(25,118,210,0.1) 0%, transparent 70%)",
-            top: -100,
-            right: -100,
-            borderRadius: "50%",
-            animation: "float 6s ease-in-out infinite",
-          },
-          "&::after": {
-            content: '""',
-            position: "absolute",
-            width: 300,
-            height: 300,
-            background: "radial-gradient(circle, rgba(66,165,245,0.1) 0%, transparent 70%)",
-            bottom: -50,
-            left: -50,
-            borderRadius: "50%",
-            animation: "float 8s ease-in-out infinite reverse",
-          },
-          "@keyframes float": {
-            "0%, 100%": { transform: "translate(0, 0)" },
-            "50%": { transform: "translate(30px, -30px)" },
-          },
-        }}
-      >
-        <Container sx={{ textAlign: "center", position: "relative", zIndex: 1 }}>
-          <motion.div
-            initial={{ scale: 0, rotate: -180 }}
-            animate={{ scale: 1, rotate: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <Box
-              sx={{
-                width: 180,
-                height: 180,
-                margin: "0 auto 40px",
-                borderRadius: "50%",
-                background: "linear-gradient(135deg, #42a5f5 0%, #1976d2 100%)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 20px 60px rgba(25,118,210,0.4)",
-                position: "relative",
-                "&::before": {
-                  content: '""',
-                  position: "absolute",
-                  inset: -10,
-                  borderRadius: "50%",
-                  background: "linear-gradient(135deg, #42a5f5, #1976d2)",
-                  opacity: 0.3,
-                  filter: "blur(20px)",
-                },
-              }}
-            >
-              <Box
-                component="img"
-                src="https://cdn-icons-png.flaticon.com/512/2038/2038854.png"
-                alt="empty cart"
-                sx={{ width: 100, height: 100, filter: "brightness(0) invert(1)" }}
-              />
-            </Box>
-          </motion.div>
-
-          <Typography
-            variant="h4"
-            fontWeight={700}
-            gutterBottom
-            sx={{
-              background: "linear-gradient(90deg, #1976d2, #42a5f5)",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-            }}
-          >
-            Giỏ hàng của bạn đang trống
-          </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ mb: 5, fontSize: "1.1rem" }}>
-            Hãy khám phá hàng ngàn sản phẩm tuyệt vời! 🛍️
-          </Typography>
-
-          <Button
-            variant="contained"
-            size="large"
-            sx={{
-              borderRadius: "50px",
-              px: 6,
-              py: 2,
-              fontSize: "1.1rem",
-              fontWeight: 600,
-              background: "linear-gradient(90deg, #1976d2 0%, #42a5f5 100%)",
-              boxShadow: "0 8px 24px rgba(25,118,210,0.4)",
-              position: "relative",
-              overflow: "hidden",
-              "&::before": {
-                content: '""',
-                position: "absolute",
-                top: 0,
-                left: "-100%",
-                width: "100%",
-                height: "100%",
-                background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
-                transition: "left 0.5s",
-              },
-              "&:hover": {
-                background: "linear-gradient(90deg, #1565c0 0%, #1976d2 100%)",
-                boxShadow: "0 12px 32px rgba(25,118,210,0.5)",
-                transform: "translateY(-2px)",
-                "&::before": {
-                  left: "100%",
-                },
-              },
-              transition: "all 0.3s ease",
-            }}
-            onClick={() => (window.location.href = "/home")}
-          >
-            Tiếp tục mua sắm
-          </Button>
-        </Container>
-      </Box>
+      <Container sx={{ textAlign: "center", mt: 12 }}>
+        <Typography variant="h4" fontWeight={700} mb={2}>
+          Giỏ hàng của bạn đang trống 🛒
+        </Typography>
+        <Button
+          variant="contained"
+          size="large"
+          onClick={() => navigate("/home")}
+        >
+          Tiếp tục mua sắm
+        </Button>
+      </Container>
     );
   }
 
+  // ✅ UI chính
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        background:
-          theme.palette.mode === "dark"
-            ? "linear-gradient(135deg, #0a1929 0%, #1a2942 100%)"
-            : "linear-gradient(135deg, #e3f2fd 0%, #ffffff 50%, #e3f2fd 100%)",
-        py: 6,
-        position: "relative",
-        "&::before": {
-          content: '""',
-          position: "absolute",
-          width: 500,
-          height: 500,
-          background: "radial-gradient(circle, rgba(25,118,210,0.08) 0%, transparent 70%)",
-          top: 100,
-          right: -100,
-          borderRadius: "50%",
-          animation: "float 8s ease-in-out infinite",
-        },
-        "&::after": {
-          content: '""',
-          position: "absolute",
-          width: 400,
-          height: 400,
-          background: "radial-gradient(circle, rgba(66,165,245,0.08) 0%, transparent 70%)",
-          bottom: 100,
-          left: -100,
-          borderRadius: "50%",
-          animation: "float 10s ease-in-out infinite reverse",
-        },
-        "@keyframes float": {
-          "0%, 100%": { transform: "translate(0, 0)" },
-          "50%": { transform: "translate(40px, -40px)" },
-        },
-      }}
-    >
-      <Container sx={{ position: "relative", zIndex: 1 }}>
+    <>
+      <Box sx={{ py: 6 }}>
+        <Container>
         {/* Header */}
         <Box sx={{ textAlign: "center", mb: 6 }}>
           <Chip
@@ -313,35 +406,15 @@ export default function CartPage() {
               mb: 2,
               background: "linear-gradient(90deg, #1976d2, #42a5f5)",
               color: "white",
-              fontWeight: 600,
-              px: 2,
-              fontSize: "0.9rem",
             }}
           />
-          <Typography
-            variant="h3"
-            fontWeight={800}
-            gutterBottom
-            sx={{
-              background: "linear-gradient(90deg, #1976d2 0%, #42a5f5 50%, #1976d2 100%)",
-              backgroundSize: "200% auto",
-              WebkitBackgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              animation: "gradient 3s linear infinite",
-              "@keyframes gradient": {
-                "0%": { backgroundPosition: "0% center" },
-                "100%": { backgroundPosition: "200% center" },
-              },
-            }}
-          >
+          <Typography variant="h3" fontWeight={800}>
             🛍 Giỏ hàng của bạn
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Hoàn tất đơn hàng để nhận ưu đãi đặc biệt!
           </Typography>
         </Box>
 
         <Grid container spacing={4}>
+          {/* LEFT */}
           <Grid item xs={12} md={8}>
             {cart.items.map((item, index) => (
               <motion.div
@@ -349,94 +422,44 @@ export default function CartPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: index * 0.1 }}
-                whileHover={{ scale: 1.02, y: -5 }}
               >
                 <Paper
-                  elevation={0}
                   sx={{
-                    mb: 3,
                     p: 3,
+                    mb: 3,
                     borderRadius: 4,
                     display: "flex",
-                    alignItems: "center",
                     justifyContent: "space-between",
-                    backdropFilter: "blur(20px)",
-                    background:
-                      theme.palette.mode === "dark"
-                        ? "rgba(30,41,59,0.8)"
-                        : "rgba(255,255,255,0.9)",
-                    border: "1px solid",
-                    borderColor:
-                      theme.palette.mode === "dark"
-                        ? "rgba(66,165,245,0.1)"
-                        : "rgba(25,118,210,0.1)",
+                    alignItems: "center",
+                    background: theme.palette.background.paper,
                     boxShadow: "0 4px 20px rgba(25,118,210,0.1)",
-                    position: "relative",
-                    overflow: "hidden",
-                    "&::before": {
-                      content: '""',
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: 3,
-                      background: "linear-gradient(90deg, #1976d2, #42a5f5, #1976d2)",
-                      backgroundSize: "200% auto",
-                      animation: "shimmer 3s linear infinite",
-                    },
-                    "&:hover": {
-                      boxShadow: "0 8px 32px rgba(25,118,210,0.2)",
-                    },
-                    "@keyframes shimmer": {
-                      "0%": { backgroundPosition: "0% center" },
-                      "100%": { backgroundPosition: "200% center" },
-                    },
                   }}
                 >
                   <Box display="flex" alignItems="center" gap={3}>
                     <Box
+                      component="img"
+                      src={
+                        item.productId.images[0] ||
+                        "https://via.placeholder.com/120"
+                      }
                       sx={{
-                        position: "relative",
-                        "&::before": {
-                          content: '""',
-                          position: "absolute",
-                          inset: -5,
-                          borderRadius: 3,
-                          background: "linear-gradient(135deg, #42a5f5, #1976d2)",
-                          opacity: 0.2,
-                          filter: "blur(10px)",
-                        },
+                        width: 120,
+                        height: 120,
+                        borderRadius: 3,
+                        objectFit: "cover",
                       }}
-                    >
-                      <Box
-                        component="img"
-                        src={
-                          item.productId.images[0] ||
-                          "https://via.placeholder.com/120"
-                        }
-                        alt={item.productId.title}
-                        sx={{
-                          width: 120,
-                          height: 120,
-                          borderRadius: 3,
-                          objectFit: "cover",
-                          boxShadow: "0 8px 16px rgba(0,0,0,0.15)",
-                          position: "relative",
-                          zIndex: 1,
-                        }}
-                      />
-                    </Box>
+                    />
                     <Box>
-                      <Typography fontWeight={700} variant="h6" sx={{ mb: 1 }}>
+                      <Typography fontWeight={700} variant="h6">
                         {item.productId.title}
                       </Typography>
                       <Typography
                         variant="h6"
                         sx={{
-                          background: "linear-gradient(90deg, #1976d2, #42a5f5)",
+                          background:
+                            "linear-gradient(90deg, #1976d2, #42a5f5)",
                           WebkitBackgroundClip: "text",
                           WebkitTextFillColor: "transparent",
-                          fontWeight: 700,
                         }}
                       >
                         {item.productId.price.toLocaleString("vi-VN")}₫
@@ -444,17 +467,15 @@ export default function CartPage() {
                     </Box>
                   </Box>
 
+                  {/* Quantity */}
                   <Box display="flex" alignItems="center" gap={2}>
                     <Box
                       sx={{
                         display: "flex",
                         alignItems: "center",
-                        background:
-                          theme.palette.mode === "dark"
-                            ? "rgba(66,165,245,0.1)"
-                            : "rgba(25,118,210,0.05)",
-                        borderRadius: 3,
                         p: 0.5,
+                        borderRadius: 3,
+                        background: "rgba(25,118,210,0.05)",
                       }}
                     >
                       <IconButton
@@ -469,42 +490,26 @@ export default function CartPage() {
                           item.quantity <= 1 ||
                           updatingItemId === item.productId._id
                         }
-                        sx={{
-                          background:
-                            theme.palette.mode === "dark"
-                              ? "rgba(255,255,255,0.1)"
-                              : "white",
-                          "&:hover": {
-                            background: "primary.main",
-                            color: "white",
-                          },
-                        }}
                       >
                         -
                       </IconButton>
+
                       <TextField
                         type="number"
                         size="small"
                         value={item.quantity}
-                        inputProps={{ min: 1 }}
                         onChange={(e) =>
                           handleUpdateQuantity(
                             item.productId._id,
                             Number(e.target.value)
                           )
                         }
-                        disabled={updatingItemId === item.productId._id}
                         sx={{
                           width: 60,
-                          mx: 1,
-                          "& input": {
-                            textAlign: "center",
-                            fontWeight: 700,
-                            fontSize: "1.1rem",
-                          },
-                          "& fieldset": { border: "none" },
+                          "& input": { textAlign: "center" },
                         }}
                       />
+
                       <IconButton
                         size="small"
                         onClick={() =>
@@ -514,34 +519,25 @@ export default function CartPage() {
                           )
                         }
                         disabled={updatingItemId === item.productId._id}
-                        sx={{
-                          background:
-                            theme.palette.mode === "dark"
-                              ? "rgba(255,255,255,0.1)"
-                              : "white",
-                          "&:hover": {
-                            background: "primary.main",
-                            color: "white",
-                          },
-                        }}
                       >
                         +
                       </IconButton>
                     </Box>
+
+                    {/* Remove */}
                     {updatingItemId === item.productId._id ? (
                       <CircularProgress size={24} />
                     ) : (
                       <IconButton
+                        onClick={() =>
+                          handleRemoveItem(item.productId._id)
+                        }
                         sx={{
-                          background: "rgba(244,67,54,0.1)",
                           "&:hover": {
                             background: "error.main",
                             color: "white",
-                            transform: "scale(1.1)",
                           },
-                          transition: "all 0.3s ease",
                         }}
-                        onClick={() => handleRemoveItem(item.productId._id)}
                       >
                         <DeleteIcon />
                       </IconButton>
@@ -556,27 +552,28 @@ export default function CartPage() {
               sx={{
                 p: 3,
                 borderRadius: 4,
-                background: "linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)",
+                mt: 2,
+                background:
+                  "linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)",
                 color: "white",
                 display: "flex",
                 alignItems: "center",
                 gap: 2,
-                boxShadow: "0 8px 24px rgba(25,118,210,0.4)",
               }}
             >
               <LocalOfferOutlinedIcon sx={{ fontSize: 40 }} />
               <Box>
                 <Typography variant="h6" fontWeight={700}>
-                  Giảm ngay 15% cho đơn hàng này! 🎉
+                  Giảm ngay 15% cho đơn hàng này 🎉
                 </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                <Typography variant="body2">
                   Áp dụng tự động khi thanh toán
                 </Typography>
               </Box>
             </Paper>
           </Grid>
 
-          {/* Summary */}
+          {/* RIGHT – SUMMARY */}
           <Grid item xs={12} md={4}>
             <Paper
               sx={{
@@ -584,30 +581,23 @@ export default function CartPage() {
                 borderRadius: 4,
                 position: "sticky",
                 top: 100,
-                backdropFilter: "blur(20px)",
-                background:
-                  theme.palette.mode === "dark"
-                    ? "rgba(30,41,59,0.8)"
-                    : "rgba(255,255,255,0.9)",
-                border: "1px solid",
-                borderColor:
-                  theme.palette.mode === "dark"
-                    ? "rgba(66,165,245,0.2)"
-                    : "rgba(25,118,210,0.2)",
                 boxShadow: "0 8px 32px rgba(25,118,210,0.15)",
               }}
             >
-              <Typography variant="h5" fontWeight={700} gutterBottom>
+              <Typography variant="h5" fontWeight={700} mb={2}>
                 Tóm tắt đơn hàng
               </Typography>
               <Divider sx={{ mb: 3 }} />
 
               <Box display="flex" justifyContent="space-between" mb={2}>
-                <Typography variant="body1">Tổng sản phẩm:</Typography>
-                <Typography fontWeight={700}>{cart.items.length}</Typography>
+                <Typography>Tổng sản phẩm:</Typography>
+                <Typography fontWeight={700}>
+                  {cart.items.length}
+                </Typography>
               </Box>
+
               <Box display="flex" justifyContent="space-between" mb={2}>
-                <Typography variant="body1">Tạm tính:</Typography>
+                <Typography>Tạm tính:</Typography>
                 <Typography fontWeight={700}>
                   {totalPrice.toLocaleString("vi-VN")}₫
                 </Typography>
@@ -615,11 +605,51 @@ export default function CartPage() {
 
               <Divider sx={{ my: 3 }} />
 
+              <Stack spacing={2} mb={3}>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Box>
+                    <Typography fontWeight={700}>Voucher</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {selectedVoucher ? `Đang dùng mã ${selectedVoucher.code}` : "Chọn voucher phù hợp cho đơn hàng này"}
+                    </Typography>
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<ConfirmationNumberOutlinedIcon />}
+                    onClick={() => setVoucherDialogOpen(true)}
+                  >
+                    {selectedVoucher ? "Đổi mã" : "Chọn mã"}
+                  </Button>
+                </Box>
+
+                {selectedVoucher && (
+                  <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+                    <Chip label={selectedVoucher.code} color="primary" />
+                    <Typography color="success.main" fontWeight={700}>
+                      - {formatCurrency(voucherDiscount)}
+                    </Typography>
+                    <Button size="small" color="error" onClick={handleRemoveVoucher}>
+                      Bỏ voucher
+                    </Button>
+                  </Stack>
+                )}
+              </Stack>
+
+              {voucherDiscount > 0 && (
+                <Box display="flex" justifyContent="space-between" mb={2}>
+                  <Typography color="success.main">Giảm giá</Typography>
+                  <Typography color="success.main" fontWeight={700}>
+                    - {formatCurrency(voucherDiscount)}
+                  </Typography>
+                </Box>
+              )}
+
               <Box
                 display="flex"
                 justifyContent="space-between"
-                alignItems="center"
                 mb={4}
+                alignItems="center"
               >
                 <Typography variant="h6" fontWeight={700}>
                   Tổng cộng:
@@ -628,122 +658,297 @@ export default function CartPage() {
                   variant="h5"
                   fontWeight={800}
                   sx={{
-                    background: "linear-gradient(90deg, #1976d2, #42a5f5)",
+                    background:
+                      "linear-gradient(90deg, #1976d2, #42a5f5)",
                     WebkitBackgroundClip: "text",
                     WebkitTextFillColor: "transparent",
                   }}
                 >
-                  {totalPrice.toLocaleString("vi-VN")}₫
+                  {formatCurrency(finalTotal)}
                 </Typography>
               </Box>
 
+              {/* ✅ BUTTON CHECKOUT – CHUYỂN THEO ID */}
               <Button
                 fullWidth
-                variant="contained"
                 size="large"
+                variant="contained"
                 startIcon={<ShoppingCartCheckoutIcon />}
                 sx={{
-                  borderRadius: "50px",
                   py: 2,
-                  fontSize: "1.1rem",
+                  borderRadius: "50px",
                   fontWeight: 700,
-                  background: "linear-gradient(90deg, #1976d2 0%, #42a5f5 100%)",
-                  boxShadow: "0 8px 24px rgba(25,118,210,0.4)",
-                  position: "relative",
-                  overflow: "hidden",
-                  "&::before": {
-                    content: '""',
-                    position: "absolute",
-                    top: 0,
-                    left: "-100%",
-                    width: "100%",
-                    height: "100%",
-                    background:
-                      "linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent)",
-                    transition: "left 0.5s",
-                  },
-                  "&:hover": {
-                    background: "linear-gradient(90deg, #1565c0 0%, #1976d2 100%)",
-                    boxShadow: "0 12px 32px rgba(25,118,210,0.5)",
-                    transform: "translateY(-2px)",
-                    "&::before": {
-                      left: "100%",
-                    },
-                  },
-                  transition: "all 0.3s ease",
+                  fontSize: "1.1rem",
+                  background:
+                    "linear-gradient(90deg, #1976d2, #42a5f5)",
                 }}
-                onClick={() => (window.location.href = "/checkout")}
+                onClick={() => navigate(`/checkout/cart/${cart._id}`)}
               >
-                Thanh toán ngay
+                Tiến hành thanh toán
               </Button>
-
-              <Typography
-                variant="caption"
-                display="block"
-                textAlign="center"
-                color="text.secondary"
-                mt={2}
-              >
-                🔒 Thanh toán an toàn & bảo mật
-              </Typography>
-
-              {/* Trust Badges */}
-              <Box sx={{ mt: 4, pt: 3, borderTop: "1px dashed rgba(0,0,0,0.1)" }}>
-                <Box display="flex" alignItems="center" gap={2} mb={2}>
-                  <Box
-                    sx={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: "50%",
-                      background: "rgba(25,118,210,0.1)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <LocalShippingOutlinedIcon color="primary" />
-                  </Box>
-                  <Typography variant="body2">
-                    Miễn phí vận chuyển toàn quốc
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={2} mb={2}>
-                  <Box
-                    sx={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: "50%",
-                      background: "rgba(25,118,210,0.1)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <VerifiedUserOutlinedIcon color="primary" />
-                  </Box>
-                  <Typography variant="body2">Đổi trả trong 30 ngày</Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={2}>
-                  <Box
-                    sx={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: "50%",
-                      background: "rgba(25,118,210,0.1)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <LocalOfferOutlinedIcon color="primary" />
-                  </Box>
-                  <Typography variant="body2">Ưu đãi độc quyền</Typography>
-                </Box>
-              </Box>
             </Paper>
           </Grid>
         </Grid>
-      </Container>
-    </Box>
+        </Container>
+      </Box>
+
+      <Dialog
+        open={voucherDialogOpen}
+        onClose={() => setVoucherDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Chọn voucher cho đơn hàng</DialogTitle>
+        <DialogContent dividers>
+          {voucherError && (
+            <Typography color="error" align="center" sx={{ mb: 2 }}>
+              {voucherError}
+            </Typography>
+          )}
+
+          <Stack spacing={3} sx={{ mb: 3 }}>
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Nhập mã voucher
+              </Typography>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems="flex-start">
+                <TextField
+                  fullWidth
+                  label="Mã voucher"
+                  size="small"
+                  value={manualVoucherCode}
+                  onChange={(e) => {
+                    setManualVoucherCode(e.target.value.toUpperCase());
+                    if (manualVoucherError) setManualVoucherError(null);
+                  }}
+                  error={Boolean(manualVoucherError)}
+                  helperText={manualVoucherError || ""}
+                />
+                <Button
+                  variant="contained"
+                  onClick={handleApplyManualVoucher}
+                  disabled={!manualVoucherCode.trim() || applyingVoucherCode === manualVoucherCode.trim().toUpperCase()}
+                  sx={{ minWidth: 140 }}
+                >
+                  {applyingVoucherCode === manualVoucherCode.trim().toUpperCase() ? (
+                    <CircularProgress size={18} sx={{ color: "white" }} />
+                  ) : (
+                    "Áp dụng"
+                  )}
+                </Button>
+              </Stack>
+            </Box>
+
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Gợi ý tốt nhất cho giỏ hàng này
+              </Typography>
+              {bestVoucherLoading ? (
+                <LinearProgress sx={{ borderRadius: 999 }} />
+              ) : bestVoucher ? (
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography fontWeight={700}>{bestVoucher.code}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Giảm {formatCurrency(bestVoucher.discount)}
+                      </Typography>
+                      {bestVoucher.voucher?.highlightText && (
+                        <Typography variant="caption" color="primary">
+                          {bestVoucher.voucher.highlightText}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                      <Button
+                        variant="contained"
+                        size="small"
+                        disabled={applyingVoucherCode === bestVoucher.code}
+                        onClick={() => handleApplyBestVoucher(bestVoucher.code)}
+                      >
+                        {applyingVoucherCode === bestVoucher.code ? (
+                          <CircularProgress size={18} sx={{ color: "white" }} />
+                        ) : (
+                          "Áp dụng"
+                        )}
+                      </Button>
+                      {bestVoucher.voucher && (
+                        <Button variant="text" size="small" onClick={() => showVoucherDetail(bestVoucher.voucher!)}>
+                          Xem chi tiết
+                        </Button>
+                      )}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Không có gợi ý nào phù hợp cho giỏ hàng hiện tại.
+                </Typography>
+              )}
+              {bestVoucherError && (
+                <Typography variant="caption" color="error" sx={{ mt: 1, display: "block" }}>
+                  {bestVoucherError}
+                </Typography>
+              )}
+            </Box>
+          </Stack>
+
+          {voucherLoading ? (
+            <Box sx={{ py: 6, display: "flex", justifyContent: "center" }}>
+              <CircularProgress />
+            </Box>
+          ) : userVouchers.length ? (
+            <Stack spacing={2}>
+              {userVouchers.map((voucher) => {
+                const applicable = voucher.applicable !== false;
+                const discountPreview = voucher.discount ?? 0;
+                return (
+                  <Paper key={voucher._id} sx={{ p: 2.5, borderRadius: 3 }} variant="outlined">
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      spacing={2}
+                      justifyContent="space-between"
+                      alignItems={{ sm: "center" }}
+                    >
+                      <Box>
+                        <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                          <Typography variant="h6" fontWeight={800}>
+                            {voucher.code}
+                          </Typography>
+                          {discountPreview > 0 && (
+                            <Chip
+                              label={`Ưu đãi ~ ${formatCurrency(discountPreview)}`}
+                              color="success"
+                              size="small"
+                            />
+                          )}
+                        </Stack>
+                        <Typography color="text.secondary">
+                          Giá trị: {voucher.type === "percent" ? `${voucher.value}%` : formatCurrency(voucher.value)}
+                        </Typography>
+                        <Typography color="text.secondary">
+                          Đơn tối thiểu: {voucher.minOrderValue ? formatCurrency(voucher.minOrderValue) : "Không"}
+                        </Typography>
+                        <Typography color="text.secondary">
+                          Hạn sử dụng: {formatDate(voucher.expiresAt)}
+                        </Typography>
+                        {voucher.reason && !applicable && (
+                          <Typography color="error" variant="body2" sx={{ mt: 0.5 }}>
+                            {voucher.reason}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                        <Button
+                          variant="outlined"
+                          startIcon={<InfoOutlinedIcon />}
+                          onClick={() => showVoucherDetail(voucher)}
+                        >
+                          Chi tiết
+                        </Button>
+                        <Tooltip
+                          title={!applicable ? voucher.reason || "Không đủ điều kiện" : ""}
+                          disableHoverListener={applicable}
+                        >
+                          <span>
+                            <Button
+                              variant="contained"
+                              onClick={() => handleApplyVoucher(voucher)}
+                              disabled={!applicable || applyingVoucherCode === voucher.code}
+                            >
+                              {applyingVoucherCode === voucher.code ? (
+                                <CircularProgress size={18} color="inherit" />
+                              ) : (
+                                "Áp dụng"
+                              )}
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          ) : (
+            <Box sx={{ py: 6, textAlign: "center" }}>
+              <Typography color="text.secondary">
+                Bạn chưa có voucher cá nhân. Hãy nhập mã hoặc dùng gợi ý bên trên.
+              </Typography>
+              <Typography color="text.secondary">Hiện chưa có ưu đãi nào phù hợp.</Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVoucherDialogOpen(false)}>Đóng</Button>
+          {selectedVoucher && (
+            <Button color="error" onClick={handleRemoveVoucher}>
+              Bỏ voucher
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(voucherDetail)}
+        onClose={() => setVoucherDetail(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Chi tiết voucher</DialogTitle>
+        <DialogContent dividers>
+          {voucherDetail && (
+            <Stack spacing={1.5}>
+              <Box
+                component="img"
+                src={getVoucherImageUrl(voucherDetail)}
+                alt={`Voucher ${voucherDetail.code}`}
+                sx={{
+                  width: "100%",
+                  borderRadius: 2,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  maxHeight: 180,
+                  objectFit: "cover",
+                }}
+              />
+              <Typography variant="caption" color="text.secondary">
+                Hình minh hoạ được tạo tự động bằng AI cho voucher này.
+              </Typography>
+              <Typography variant="h6" fontWeight={800}>
+                {voucherDetail.code}
+              </Typography>
+              {voucherDetail.highlightText && (
+                <Typography color="primary">{voucherDetail.highlightText}</Typography>
+              )}
+              {voucherDetailDescription && (
+                <Typography variant="body2" color="text.secondary">
+                  {voucherDetailDescription}
+                </Typography>
+              )}
+              <Typography>
+                Loại ưu đãi: {voucherDetail.type === "percent" ? `${voucherDetail.value}%` : formatCurrency(voucherDetail.value)}
+              </Typography>
+              <Typography>
+                Giảm tối đa: {voucherDetail.maxDiscount ? formatCurrency(voucherDetail.maxDiscount) : "Không giới hạn"}
+              </Typography>
+              <Typography>
+                Đơn tối thiểu: {voucherDetail.minOrderValue ? formatCurrency(voucherDetail.minOrderValue) : "Không"}
+              </Typography>
+              <Typography>Hạn sử dụng: {formatDate(voucherDetail.expiresAt)}</Typography>
+              <Typography>
+                Lượt sử dụng: {voucherDetail.usageLimit ? `${voucherDetail.usedCount ?? 0}/${voucherDetail.usageLimit}` : "Không giới hạn"}
+              </Typography>
+              {voucherDetail.reason && (
+                <Typography color="error">{voucherDetail.reason}</Typography>
+              )}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setVoucherDetail(null)}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
+    </>
   );
 }

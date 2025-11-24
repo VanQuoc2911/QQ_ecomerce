@@ -1,19 +1,29 @@
 // src/routes/AdminRoutes.tsx
 
+import { Box, CircularProgress } from "@mui/material";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 // ✅ Import đầy đủ các trang Admin
 import AdminDashboard from "../admin/pages/AdminDashboard";
 import AdminProductReview from "../admin/pages/AdminProductReview";
+import AdminSellerRequests from "../admin/pages/AdminSellerRequests";
 import AdminSettings from "../admin/pages/SystemSettings";
-import ManageUsers from "../admin/pages/User";
+import UsersManagement from "../admin/pages/UsersManagement";
 import SellerEditProduct from "../pages/seller/SellerEditProduct";
 
 export default function AdminRoutes() {
-  const { user, role } = useAuth();
+  const { user, role, loading } = useAuth();
 
   // ✅ Chặn truy cập khi không phải Admin
+  if (loading) {
+    return (
+      <Box minHeight="60vh" display="flex" alignItems="center" justifyContent="center">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
   if (!user || role !== "admin") return <Navigate to="/login" replace />;
 
   return (
@@ -29,8 +39,11 @@ export default function AdminRoutes() {
       <Route path="Products" element={<AdminProductReview />} />
       <Route path="products/:id" element={<SellerEditProduct />} />
 
+      {/* ✅ Quản lý yêu cầu người bán */}
+      <Route path="seller-requests" element={<AdminSellerRequests />} />
+
       {/* ✅ Quản lý người dùng */}
-      <Route path="users" element={<ManageUsers />} />
+      <Route path="users" element={<UsersManagement />} />
 
       {/* ✅ Cài đặt Admin */}
       <Route path="settings" element={<AdminSettings />} />

@@ -5,7 +5,11 @@ const menuItems = [
   { text: "Dashboard", path: "/seller/dashboard" },
   { text: "Sản phẩm", path: "/seller/products" },
   { text: "Đơn hàng", path: "/seller/orders" },
+  { text: "Đánh giá", path: "/seller/reviews" },
+  { text: "Chat với khách", path: "/seller/chat" },
+  { text: "Chat AI", path: "/seller/ai-chat" },
   { text: "Thông tin Shop", path: "/seller/shop" },
+  { text: "Voucher", path: "/seller/vouchers" },
 ];
 
 export default function SellerLayout() {

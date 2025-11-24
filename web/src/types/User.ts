@@ -6,6 +6,7 @@ interface User {
   displayName?: string;
   email?: string;
   role?: string;
+  sellerApproved?: boolean;
   createdAt?: string;
   updatedAt?: string;
   password?: string;
@@ -15,7 +16,8 @@ interface User {
   birthday?: string;
   gender?: string;
   avatar?: string;
-  
+  addresses?: Address[]; // Saved addresses book
+  favorites?: string[];
 }
 
 // Interface cho response từ API
@@ -37,6 +39,24 @@ export interface UserProfile {
   avatar?: string;
   phone?: string;
   address?: string;
+  // Saved addresses book
+  addresses?: Address[];
   birthday?: string; // ISO or yyyy-mm-dd
   gender?: "Nam" | "Nữ" | "Khác" | "";
+  favorites?: string[];
+}
+
+export interface Address {
+  id?: string;
+  name: string; // recipient name
+  phone: string;
+  province: string;
+  district: string;
+  ward: string;
+  detail: string; // specific address (street, house number)
+  lat?: number;
+  lng?: number;
+  type?: "home" | "office";
+  isDefault?: boolean;
+  isPinned?: boolean; // Ghim địa chỉ
 }

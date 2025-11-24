@@ -3,21 +3,59 @@ import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import Shop from "../models/Shop.js";
 
+// Simple in-memory cache for shop responses to reduce DB load on hot endpoints
+// Key -> { data, expiresAt }
+const shopCache = new Map();
+const DEFAULT_CACHE_TTL_MS = 15 * 1000; // 15 seconds
+
+function getCached(key) {
+  const entry = shopCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    shopCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCached(key, data, ttl = DEFAULT_CACHE_TTL_MS) {
+  shopCache.set(key, { data, expiresAt: Date.now() + ttl });
+}
+
 /** public: get shop info + approved products */
 export const getShopInfo = async (req, res) => {
   try {
     const { id } = req.params;
+    const page = parseInt(req.query.page || "1", 10) || 1;
+    const limit = Math.min(parseInt(req.query.limit || "24", 10) || 24, 100);
+    const cacheKey = `shop:${id}:p${page}:l${limit}`;
+
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     if (!mongoose.Types.ObjectId.isValid(id))
       return res.status(400).json({ message: "Invalid shop id" });
 
-    const shop = await Shop.findById(id).lean();
+    // fetch shop minimal fields quickly
+    const shop = await Shop.findById(id)
+      .select(
+        "shopName logo address phone website description province ownerId"
+      )
+      .lean();
     if (!shop) return res.status(404).json({ message: "Shop not found" });
 
-    const products = await Product.find({
-      shopId: id,
-      status: "approved",
-    }).sort({ createdAt: -1 });
-    return res.json({ shop, products });
+    // fetch products with projection and pagination; lean() for faster reads
+    const products = await Product.find({ shopId: id, status: "approved" })
+      .select("title price images slug _id shopId")
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+
+    const result = { shop, products, page, limit };
+    setCached(cacheKey, result);
+    return res.json(result);
   } catch (err) {
     console.error("getShopInfo error", err);
     return res.status(500).json({ message: "Server error" });
@@ -82,14 +120,34 @@ export const updateMyShop = async (req, res) => {
 export const listProductsByShop = async (req, res) => {
   try {
     const { shopId } = req.params;
+    const page = parseInt(req.query.page || "1", 10) || 1;
+    const limit = Math.min(parseInt(req.query.limit || "24", 10) || 24, 100);
+    const cacheKey = `shopProducts:${shopId}:p${page}:l${limit}`;
+    const cached = getCached(cacheKey);
+    if (cached) return res.json(cached);
     // check shop exists
     const shop = await Shop.findById(shopId);
     if (!shop) return res.status(404).json({ message: "Shop not found" });
-    const products = await Product.find({ shopId, status: "approved" });
-    res.json({
-      shop: { name: shop.shopName, logo: shop.logo, address: shop.address },
+    const products = await Product.find({ shopId, status: "approved" })
+      .select("title price images slug _id shopId")
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+
+    const payload = {
+      shop: {
+        name: shop.shopName,
+        logo: shop.logo,
+        address: shop.address,
+        phone: shop.phone,
+      },
       products,
-    });
+      page,
+      limit,
+    };
+    setCached(cacheKey, payload);
+    res.json(payload);
   } catch (err) {
     console.error("listProductsByShop error", err);
     res.status(500).json({ message: "Lỗi server khi lấy sản phẩm theo shop" });

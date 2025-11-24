@@ -7,7 +7,13 @@ import Product from "../models/Product.js";
 export const getCart = async (req, res) => {
   try {
     const userId = req.user.id;
-    let cart = await Cart.findOne({ userId }).populate("items.productId");
+    let cart = await Cart.findOne({ userId }).populate({
+      path: "items.productId",
+      populate: {
+        path: "shopId",
+        select: "shopName province address lat lng",
+      },
+    });
 
     if (!cart) {
       cart = await Cart.create({ userId, items: [] });

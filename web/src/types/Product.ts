@@ -6,6 +6,7 @@ export interface Product {
   price: number;
   stock: number;
   images: string[];
+  videos?: string[];
   sellerId: string;
   categories: string[];
   status: string;

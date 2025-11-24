@@ -9,8 +9,13 @@ export interface ApiProduct {
   price: number;
   stock: number;
   images: string[];
+  videos?: string[];
   sellerId: string;
+  shopId?: string | { _id: string; shopName: string; logo?: string; province?: string };
   categories: string[];
+  origin?: string;
+  rating?: number;
+  reviewCount?: number;
   status: string;
   createdAt: string;
   Rating: number;
@@ -26,17 +31,29 @@ export interface ProductResponse {
 }
 
 export const productService = {
-  // ✅ Lấy danh sách sản phẩm (có thể truyền status, page, limit)
+  // ✅ Lấy danh sách sản phẩm công khai (có thể truyền status, page, limit)
   getProducts: async (params?: {
     page?: number;
     limit?: number;
     status?: string;
+    q?: string;
+    shopId?: string;
+    province?: string;
+    origin?: string;
+    category?: string;
+    minRating?: number;
   }): Promise<ProductResponse> => {
     const { data } = await api.get("/api/products", { params });
     return data;
   },
 
-  // ✅ Cập nhật sản phẩm (dùng cho duyệt sản phẩm)
+  // ✅ Lấy chỉ sản phẩm của seller hiện tại (yêu cầu auth token)
+  getMyProducts: async (): Promise<ApiProduct[]> => {
+    const { data } = await api.get("/api/products/me/products");
+    return data;
+  },
+
+  // ✅ Cập nhật sản phẩm
   updateProduct: async (
     id: string | number,
     productData: Partial<ApiProduct>

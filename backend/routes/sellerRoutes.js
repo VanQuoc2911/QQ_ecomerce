@@ -1,6 +1,10 @@
 import express from "express";
 import { getProductById } from "../controllers/productController.js";
 import {
+  getSellerReviews,
+  replyToReview,
+} from "../controllers/reviewController.js";
+import {
   createProduct,
   deleteProduct,
   getMyProducts,
@@ -25,7 +29,10 @@ router.post(
   "/products",
   verifyToken,
   roleGuard(["seller"]),
-  upload.array("images", 6),
+  upload.fields([
+    { name: "images", maxCount: 8 },
+    { name: "videos", maxCount: 4 },
+  ]),
   uploadToCloudinary,
   createProduct
 );
@@ -33,7 +40,10 @@ router.put(
   "/products/:id",
   verifyToken,
   roleGuard(["seller"]),
-  upload.array("images", 6),
+  upload.fields([
+    { name: "images", maxCount: 8 },
+    { name: "videos", maxCount: 4 },
+  ]),
   uploadToCloudinary,
   updateProduct
 );
@@ -42,6 +52,15 @@ router.delete(
   verifyToken,
   roleGuard(["seller"]),
   deleteProduct
+);
+
+router.get("/reviews", verifyToken, roleGuard(["seller"]), getSellerReviews);
+
+router.post(
+  "/reviews/:reviewId/reply",
+  verifyToken,
+  roleGuard(["seller"]),
+  replyToReview
 );
 
 export default router;

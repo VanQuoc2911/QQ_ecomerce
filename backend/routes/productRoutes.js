@@ -35,7 +35,11 @@ router.put(
   "/:id",
   verifyToken,
   roleGuard(["seller", "admin"]),
-  upload.array("images", 6),
+  upload.fields([
+    { name: "images", maxCount: 8 },
+    { name: "videos", maxCount: 4 },
+  ]),
+  uploadToCloudinary,
   updateProduct
 );
 router.delete(

@@ -438,7 +438,11 @@ const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
                 <Typography variant="body2" color="text.secondary">
                   Chưa có tài khoản?{' '}
                   <Link
-                    href="#"
+                    component="button"
+                    onClick={() => {
+                      onClose();
+                      window.dispatchEvent(new Event('openRegister'));
+                    }}
                     sx={{
                       color: '#0066CC',
                       fontWeight: 600,

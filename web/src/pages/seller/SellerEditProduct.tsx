@@ -1,11 +1,13 @@
 import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  CardMedia,
-  TextField,
-  Typography,
+    Box,
+    Button,
+    Card,
+    CardContent,
+    CardMedia,
+    MenuItem,
+    Select,
+    TextField,
+    Typography,
 } from "@mui/material";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -16,6 +18,8 @@ interface ProductForm {
   description: string;
   price: number;
   stock: number;
+  categories: string[];
+  origin: string;
   images: string[]; // existing URLs
   newImages: File[]; // files to upload
 }
@@ -28,10 +32,15 @@ export default function SellerEditProduct() {
     description: "",
     price: 0,
     stock: 0,
+    categories: [],
+    origin: "Việt Nam",
     images: [],
     newImages: [],
   });
   const [loading, setLoading] = useState(true);
+
+  const categories = ["Điện tử", "Thời trang", "Sách", "Đồ gia dụng", "Khác"];
+  const origins = ["Việt Nam", "Trung Quốc", "Nhật Bản", "Hàn Quốc", "Thái Lan", "Khác"];
 
   useEffect(() => {
     if (!id) return;
@@ -45,6 +54,8 @@ export default function SellerEditProduct() {
           description: p.description || "",
           price: p.price || 0,
           stock: p.stock || 0,
+          categories: p.categories || [],
+          origin: p.origin || "Việt Nam",
           images: p.images || [],
         }));
       })
@@ -69,6 +80,8 @@ export default function SellerEditProduct() {
       data.append("description", form.description);
       data.append("price", String(form.price));
       data.append("stock", String(form.stock));
+      data.append("categories", JSON.stringify(form.categories));
+      data.append("origin", form.origin);
       // append new files if any
       form.newImages.forEach((f) => data.append("images", f));
 
@@ -124,6 +137,41 @@ export default function SellerEditProduct() {
           onChange={(e) => setForm({ ...form, stock: Number(e.target.value) })}
         />
       </Box>
+
+      {/* Danh mục */}
+      <Select
+        multiple
+        value={form.categories}
+        onChange={(e) => setForm({ ...form, categories: e.target.value as string[] })}
+        fullWidth
+        sx={{ mb: 2 }}
+        displayEmpty
+      >
+        <MenuItem disabled value="">
+          Chọn danh mục
+        </MenuItem>
+        {categories.map((cat) => (
+          <MenuItem key={cat} value={cat}>
+            {cat}
+          </MenuItem>
+        ))}
+      </Select>
+
+      {/* Xuất sứ */}
+      <Select
+        value={form.origin}
+        onChange={(e) => setForm({ ...form, origin: e.target.value })}
+        fullWidth
+        sx={{ mb: 2 }}
+      >
+        {origins.map((origin) => (
+          <MenuItem key={origin} value={origin}>
+            {origin}
+          </MenuItem>
+        ))}
+      </Select>
+
+      
 
       <Box mb={2}>
         <Typography fontWeight={700} mb={1}>

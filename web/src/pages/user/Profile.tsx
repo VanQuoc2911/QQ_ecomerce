@@ -13,29 +13,30 @@ import SaveIcon from "@mui/icons-material/Save";
 import StoreIcon from "@mui/icons-material/Store";
 import VerifiedIcon from "@mui/icons-material/Verified";
 import {
-  Alert,
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Container,
-  IconButton,
-  InputAdornment,
-  Paper,
-  Snackbar,
-  Tab,
-  Tabs,
-  TextField,
-  Typography,
+    Alert,
+    Avatar,
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    Container,
+    IconButton,
+    InputAdornment,
+    Paper,
+    Snackbar,
+    Tab,
+    Tabs,
+    TextField,
+    Typography,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { type AxiosResponse } from "axios";
 import { useEffect, useState, type ChangeEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/axios";
+import { userService } from "../../api/userService";
 import { useAuth } from "../../context/AuthContext";
-
+import BankAccountSettings from "./BankAccountSettings";
 interface Shop {
   shopName?: string;
   logo?: string;
@@ -86,6 +87,10 @@ export default function ProfilePage() {
     shopPhone: "",
     shopWebsite: "",
     shopDescription: "",
+    bankName: "",
+    accountNumber: "",
+    accountHolder: "",
+    branch: "",
   });
 
   const fetchProfile = async () => {
@@ -108,6 +113,10 @@ export default function ProfilePage() {
         shopPhone: res.data.shop?.phone || "",
         shopWebsite: res.data.shop?.website || "",
         shopDescription: res.data.shop?.description || "",
+        bankName: "",
+        accountNumber: "",
+        accountHolder: "",
+        branch: "",
       });
     } catch (err) {
       console.error(err);
@@ -120,6 +129,11 @@ export default function ProfilePage() {
   useEffect(() => {
     fetchProfile();
   }, []);
+
+  // Debug: log user role and tab
+  useEffect(() => {
+    console.log("Profile Debug:", { userRole: user?.role, currentTab: tab, isSeller: user?.role === "seller" });
+  }, [user, tab]);
 
   const handleTabChange = (_: unknown, newValue: number) => setTab(newValue);
 
@@ -139,26 +153,15 @@ export default function ProfilePage() {
   const handleUpdateProfile = async () => {
     setLoading(true);
     try {
-      const res: AxiosResponse<{ user: User; message?: string }> = await api.put(
-        "/api/auth/profile",
-        {
-          name: form.name,
-          phone: form.phone,
-          address: form.address,
-          avatar: form.avatar,
-          shop: {
-            shopName: form.shopName,
-            logo: form.shopLogo,
-            address: form.shopAddress,
-            phone: form.shopPhone,
-            website: form.shopWebsite,
-            description: form.shopDescription,
-          },
-        },
-        { headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` } }
-      );
-      setUser(res.data.user);
-      setToast({ msg: res.data.message || "Cập nhật thành công", type: "success" });
+      // Use userService which triggers profileUpdated event
+      const updated = await userService.updateProfile({
+        name: form.name,
+        phone: form.phone,
+        address: form.address,
+        avatar: form.avatar,
+      });
+      setUser(updated as unknown as User);
+      setToast({ msg: "Cập nhật thành công", type: "success" });
       setEditing(false);
     } catch (err) {
       console.error(err);
@@ -190,9 +193,9 @@ export default function ProfilePage() {
     }
   };
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     try {
-      await logout();
+      logout();
       navigate("/home");
     } catch (err) {
       console.error("Lỗi khi đăng xuất:", err);
@@ -339,6 +342,7 @@ export default function ProfilePage() {
           >
             <Tab icon={<PersonIcon />} iconPosition="start" label="Thông tin cá nhân" />
             <Tab icon={<LockIcon />} iconPosition="start" label="Đổi mật khẩu" />
+            <Tab icon={<DescriptionIcon />} iconPosition="start" label="Tài khoản ngân hàng" />
           </Tabs>
         </Paper>
 
@@ -416,7 +420,7 @@ export default function ProfilePage() {
                       {user?.email}
                     </Typography>
 
-                    <Box display="flex" gap={1} flexWrap="wrap" justifyContent="center">
+                    <Box display="flex" gap={1} flexWrap="wrap" justifyContent="center" mb={2}>
                       <Chip
                         label={user?.role}
                         size="small"
@@ -434,6 +438,58 @@ export default function ProfilePage() {
                         sx={{ fontWeight: 600 }}
                       />
                     </Box>
+
+                    {/* Seller Registration Button */}
+                    {!user?.sellerApproved && (
+                      <Button
+                        onClick={() => navigate("/request-seller")}
+                        variant="contained"
+                        startIcon={<StoreIcon />}
+                        sx={{
+                          width: "100%",
+                          py: 1.5,
+                          borderRadius: "12px",
+                          background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+                          fontWeight: 600,
+                          fontSize: "1rem",
+                          textTransform: "none",
+                          boxShadow: "0 4px 20px rgba(245,87,108,0.4)",
+                          "&:hover": {
+                            background: "linear-gradient(135deg, #f5576c 0%, #f093fb 100%)",
+                            boxShadow: "0 6px 24px rgba(245,87,108,0.5)",
+                          },
+                          transition: "all 0.3s ease",
+                        }}
+                      >
+                        Đăng ký trở thành Seller
+                      </Button>
+                    )}
+
+                    {/* Seller Dashboard Button */}
+                    {user?.sellerApproved && (
+                      <Button
+                        onClick={() => navigate("/seller/dashboard")}
+                        variant="contained"
+                        startIcon={<StoreIcon />}
+                        sx={{
+                          width: "100%",
+                          py: 1.5,
+                          borderRadius: "12px",
+                          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+                          fontWeight: 600,
+                          fontSize: "1rem",
+                          textTransform: "none",
+                          boxShadow: "0 4px 20px rgba(102,126,234,0.4)",
+                          "&:hover": {
+                            background: "linear-gradient(135deg, #764ba2 0%, #667eea 100%)",
+                            boxShadow: "0 6px 24px rgba(102,126,234,0.5)",
+                          },
+                          transition: "all 0.3s ease",
+                        }}
+                      >
+                        Quản Lý Cửa Hàng
+                      </Button>
+                    )}
                   </Box>
                 </Grid>
 
@@ -756,6 +812,8 @@ export default function ProfilePage() {
               </Button>
             </Box>
           )}
+
+          {tab === 2 && user?.role === "seller" && <BankAccountSettings />}
         </Paper>
       </Container>
 

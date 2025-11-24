@@ -14,15 +14,16 @@ export const getProfile = async (req, res) => {
   }
 };
 
-// UPDATE profile (name, phone, address, avatar)
+// UPDATE profile (name, phone, address, avatar, bankAccount)
 export const updateProfile = async (req, res) => {
   try {
     const updates = {};
-    const { name, phone, address } = req.body;
+    const { name, phone, address, bankAccount } = req.body;
 
     if (name) updates.name = name;
     if (phone) updates.phone = phone;
     if (address) updates.address = address;
+    if (bankAccount) updates.bankAccount = bankAccount;
 
     // avatar có thể là base64 hoặc URL
     if (req.body.avatar) {

@@ -1,5 +1,8 @@
 // src/types/Order.ts
 
+import type { CartItem } from "../context/CartContext";
+
+
 /** ======================== Item trong giỏ hàng / order ======================== */
 export interface OrderItem {
   productId: {
@@ -12,17 +15,30 @@ export interface OrderItem {
   price: number; // giá tại thời điểm mua
 }
 
-/** ======================== Dữ liệu gửi từ trang checkout lên API ======================== */
-export interface CheckoutOrder {
-  userId?: string; // optional nếu khách chưa đăng nhập
-  fullName?: string;
-  email?: string;
-  phone?: string;
-  address?: string;
-  paymentMethod: "card" | "cod" | "qr";
-  items: OrderItem[];
+export interface CheckoutPayload {
+  source: "cart" | "buy-now";  // mua ngay hoặc giỏ hàng
+  sourceId: string;            // cartId hoặc productId
+
+  fullName: string;
+  email: string;
+  address: string;
+  paymentMethod: string;
+  items: CartItem[];
   total: number;
 }
+
+/** ======================== Dữ liệu gửi từ trang checkout lên API ======================== */
+export interface CheckoutOrder {
+  userId: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  address: string;
+  paymentMethod: string;
+  total: number;
+  items: OrderItem[];
+}
+
 
 /** ======================== Dữ liệu order trả về từ API ======================== */
 export interface Order extends CheckoutOrder {

@@ -1,5 +1,6 @@
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
+import Shop from "../models/Shop.js";
 
 /** public: list products (only approved unless admin) */
 export const listProducts = async (req, res) => {
@@ -9,16 +10,37 @@ export const listProducts = async (req, res) => {
     const skip = (page - 1) * limit;
     const q = req.query.q;
     const shopId = req.query.shopId;
+    const province = req.query.province;
+    const origin = req.query.origin;
+    const category = req.query.category;
+    const minRating = req.query.minRating ? Number(req.query.minRating) : null;
     const filter = {};
 
     const showAll = req.user?.role === "admin" && req.query.all === "true";
-    if (!showAll) filter.status = "approved";
+    if (!showAll) {
+      filter.status = "approved";
+      filter.stock = { $gt: 0 }; // Hide out-of-stock products from public
+    }
 
     if (q) filter.title = new RegExp(q, "i");
     if (shopId) filter.shopId = shopId;
+    if (origin) filter.origin = origin;
+    if (category) filter.categories = category;
+    if (minRating !== null) filter.rating = { $gte: minRating };
+
+    // If filtering by province, find shops in that province first
+    if (province) {
+      const shopsInProvince = await Shop.find({ province });
+      const shopIds = shopsInProvince.map((shop) => shop._id);
+      filter.shopId = { $in: shopIds };
+    }
 
     const [items, total] = await Promise.all([
-      Product.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
+      Product.find(filter)
+        .populate("shopId", "shopName logo address phone province lat lng")
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 }),
       Product.countDocuments(filter),
     ]);
     res.json({ items, total, page, limit });
@@ -34,7 +56,7 @@ export const getProductById = async (req, res) => {
     const { id } = req.params;
     const product = await Product.findById(id).populate(
       "shopId",
-      "shopName logo"
+      "shopName logo address province lat lng"
     );
     if (!product) return res.status(404).json({ message: "Product not found" });
 
@@ -100,12 +122,19 @@ export const listProductsByShop = async (req, res) => {
     const filter = { shopId };
 
     const showAll = req.user?.role === "admin" && req.query.all === "true";
-    if (!showAll) filter.status = "approved";
+    if (!showAll) {
+      filter.status = "approved";
+      filter.stock = { $gt: 0 }; // Hide out-of-stock products from public
+    }
 
     if (q) filter.title = new RegExp(q, "i");
 
     const [items, total] = await Promise.all([
-      Product.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 }),
+      Product.find(filter)
+        .populate("shopId", "shopName logo address phone province lat lng")
+        .skip(skip)
+        .limit(limit)
+        .sort({ createdAt: -1 }),
       Product.countDocuments(filter),
     ]);
 

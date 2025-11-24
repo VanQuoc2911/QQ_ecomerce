@@ -1,21 +1,25 @@
 // src/admin/pages/AdminDashboard.tsx
+import AssessmentIcon from "@mui/icons-material/Assessment";
 import LogoutIcon from "@mui/icons-material/Logout";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import PeopleIcon from "@mui/icons-material/People";
 import SettingsIcon from "@mui/icons-material/Settings";
-import { Box, Button, Card, CardContent, CircularProgress, Typography } from "@mui/material";
-import Grid from "@mui/material/GridLegacy";
-import axios from "axios";
+import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
+import StoreIcon from "@mui/icons-material/Store";
+import { Box, Button, Card, CardContent, CircularProgress, Container, Typography, alpha } from "@mui/material";
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 
 interface StatCard {
   title: string;
-  value: number;
+  value?: number | string;
   icon: React.ReactNode;
   color: string;
   link?: string;
+  trend?: string;
+  subtitle?: string;
 }
 
 const AdminDashboard: React.FC = () => {
@@ -35,32 +39,50 @@ const AdminDashboard: React.FC = () => {
 
   const fetchStats = async () => {
     try {
-      const [usersRes, productsRes] = await Promise.all([
-        axios.get("/users", { withCredentials: true }),
-        axios.get("/products/pending", { withCredentials: true }),
+      const [usersRes, productsRes, sellersRes] = await Promise.all([
+        api.get("/api/users"),
+        api.get("/api/admin/products/pending"),
+        api.get("/api/admin/seller-requests").catch(() => ({ data: [] })),
       ]);
+
+      const pendingSellers = Array.isArray(sellersRes.data)
+        ? sellersRes.data.filter((s: { status: string }) => s.status === "pending").length
+        : 0;
 
       setStats([
         {
           title: "Total Users",
-          value: usersRes.data.length,
-          icon: <PeopleIcon style={{ fontSize: 32 }} />,
-          color: "#4e73df",
+          value: usersRes.data?.data?.length ?? usersRes.data?.length ?? 0,
+          icon: <PeopleIcon sx={{ fontSize: 40 }} />,
+          color: "#0288d1",
           link: "/admin/users",
+          trend: "+12.5%",
+          subtitle: "Active members",
+        },
+        {
+          title: "Seller Requests",
+          value: pendingSellers,
+          icon: <StoreIcon sx={{ fontSize: 40 }} />,
+          color: "#7b1fa2",
+          link: "/admin/seller-requests",
+          trend: "Awaiting review",
+          subtitle: "Pending approvals",
         },
         {
           title: "Pending Products",
-          value: productsRes.data.length,
-          icon: <PendingActionsIcon style={{ fontSize: 32 }} />,
-          color: "#f6c23e",
+          value: Array.isArray(productsRes.data) ? productsRes.data.length : productsRes.data?.length ?? 0,
+          icon: <PendingActionsIcon sx={{ fontSize: 40 }} />,
+          color: "#f57c00",
           link: "/admin/products",
+          trend: "Needs review",
+          subtitle: "Awaiting approval",
         },
         {
           title: "System Settings",
-          value: 0,
-          icon: <SettingsIcon style={{ fontSize: 32 }} />,
-          color: "#1cc88a",
+          icon: <SettingsIcon sx={{ fontSize: 40 }} />,
+          color: "#00897b",
           link: "/admin/settings",
+          subtitle: "Configure system",
         },
       ]);
     } catch (err) {
@@ -74,63 +96,188 @@ const AdminDashboard: React.FC = () => {
     fetchStats();
   }, []);
 
-  if (loading) return <CircularProgress />;
+  const quickActions = [
+    { label: "View All Products", description: "Browse and moderate listings", icon: <ShoppingCartIcon />, link: "/admin/products" },
+    { label: "User Management", description: "Manage customer accounts", icon: <PeopleIcon />, link: "/admin/users" },
+    { label: "Seller Requests", description: "Review pending sellers", icon: <StoreIcon />, link: "/admin/seller-requests" },
+    { label: "View Reports", description: "Check performance insights", icon: <AssessmentIcon />, link: "/admin/reports" },
+    { label: "System Settings", description: "Update platform policies", icon: <SettingsIcon />, link: "/admin/settings" },
+  ];
+
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="100vh">
+        <CircularProgress size={60} sx={{ color: "#0288d1" }} />
+      </Box>
+    );
+  }
 
   return (
-    <Box>
-      {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" fontWeight={700}>Admin Dashboard</Typography>
-        <Button
-          variant="contained"
-          color="error"
-          startIcon={<LogoutIcon />}
-          onClick={handleLogout}
-          sx={{ borderRadius: 2, textTransform: "none", fontWeight: 600 }}
+    <Box
+      sx={{
+        minHeight: "100vh",
+        backgroundColor: "#f5f7fb",
+        py: 4,
+      }}
+    >
+      <Container maxWidth="lg">
+        <Card
+          sx={{
+            borderRadius: 4,
+            background: "linear-gradient(135deg, #0288d1 0%, #01579b 100%)",
+            color: "white",
+            mb: 4,
+          }}
         >
-          Logout
-        </Button>
-      </Box>
+          <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+            <Box
+              display="flex"
+              flexDirection={{ xs: "column", md: "row" }}
+              alignItems={{ xs: "flex-start", md: "center" }}
+              justifyContent="space-between"
+              gap={2}
+            >
+              <Box>
+                <Typography variant="h4" fontWeight={800} gutterBottom>
+                  Admin Dashboard
+                </Typography>
+                <Typography variant="body2" sx={{ color: alpha("#ffffff", 0.85) }}>
+                  Monitor the health of your marketplace and take quick action when something looks off.
+                </Typography>
+              </Box>
+              <Box display="flex" gap={1} flexWrap="wrap">
+                <Button
+                  variant="outlined"
+                  startIcon={<AssessmentIcon />}
+                  onClick={() => navigate("/admin/reports")}
+                  sx={{
+                    borderColor: "white",
+                    color: "white",
+                    textTransform: "none",
+                    fontWeight: 600,
+                    "&:hover": {
+                      borderColor: "white",
+                      backgroundColor: alpha("#ffffff", 0.15),
+                    },
+                  }}
+                >
+                  View Reports
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={<LogoutIcon />}
+                  onClick={handleLogout}
+                  sx={{
+                    bgcolor: "white",
+                    color: "#0288d1",
+                    textTransform: "none",
+                    fontWeight: 700,
+                  }}
+                >
+                  Logout
+                </Button>
+              </Box>
+            </Box>
+          </CardContent>
+        </Card>
 
-      {/* Stats Cards */}
-      <Grid container spacing={3}>
-        {stats.map((stat) => (
-          <Grid item xs={12} sm={6} md={4} key={stat.title}>
+        <Box
+          display="grid"
+          gridTemplateColumns={{ xs: "repeat(1, 1fr)", sm: "repeat(2, 1fr)", md: "repeat(4, 1fr)" }}
+          gap={3}
+          mb={4}
+        >
+          {stats.map((stat) => (
             <Card
-              elevation={3}
+              key={stat.title}
               sx={{
-                p: 2,
                 borderRadius: 3,
-                transition: "0.3s",
+                border: "1px solid",
+                borderColor: alpha(stat.color, 0.15),
+                height: "100%",
                 cursor: stat.link ? "pointer" : "default",
-                "&:hover": { transform: "translateY(-6px)", boxShadow: "0 8px 20px rgba(0,0,0,0.12)" },
+                transition: "border-color 0.2s ease",
+                "&:hover": stat.link ? { borderColor: stat.color } : {},
               }}
               onClick={() => stat.link && navigate(stat.link)}
             >
-              <CardContent sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Box>
-                  <Typography variant="subtitle2" fontWeight={600} color="text.secondary">{stat.title}</Typography>
-                  <Typography variant="h4" fontWeight={700}>{stat.value}</Typography>
+              <CardContent sx={{ p: 3 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="flex-start">
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary">
+                      {stat.subtitle}
+                    </Typography>
+                    <Typography variant="h5" fontWeight={800} color={stat.color} mt={1}>
+                      {stat.value ?? "--"}
+                    </Typography>
+                    <Typography variant="body1" fontWeight={700} mt={0.5}>
+                      {stat.title}
+                    </Typography>
+                  </Box>
+                  <Box
+                    sx={{
+                      width: 48,
+                      height: 48,
+                      borderRadius: 2,
+                      backgroundColor: alpha(stat.color, 0.1),
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: stat.color,
+                    }}
+                  >
+                    {stat.icon}
+                  </Box>
                 </Box>
-                <Box
-                  sx={{
-                    width: 60,
-                    height: 60,
-                    borderRadius: "50%",
-                    backgroundColor: stat.color + "20",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: stat.color,
-                  }}
-                >
-                  {stat.icon}
-                </Box>
+                {stat.trend && (
+                  <Typography variant="caption" color="text.secondary" display="block" mt={2}>
+                    {stat.trend}
+                  </Typography>
+                )}
               </CardContent>
             </Card>
-          </Grid>
-        ))}
-      </Grid>
+          ))}
+        </Box>
+
+        <Card sx={{ borderRadius: 4, border: "1px solid", borderColor: alpha("#0288d1", 0.1) }}>
+          <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+            <Typography variant="h6" fontWeight={700} mb={2}>
+              Quick Actions
+            </Typography>
+            <Box display="grid" gridTemplateColumns={{ xs: "repeat(1, 1fr)", sm: "repeat(2, 1fr)", md: "repeat(3, 1fr)" }} gap={2}>
+              {quickActions.map((action) => (
+                <Button
+                  key={action.label}
+                  fullWidth
+                  variant="outlined"
+                  startIcon={action.icon}
+                  onClick={() => navigate(action.link)}
+                  sx={{
+                    justifyContent: "flex-start",
+                    borderRadius: 3,
+                    textTransform: "none",
+                    fontWeight: 600,
+                    borderColor: alpha("#0288d1", 0.25),
+                    color: "#01579b",
+                    py: 1.5,
+                    "&:hover": {
+                      borderColor: "#0288d1",
+                      backgroundColor: alpha("#0288d1", 0.05),
+                    },
+                  }}
+                >
+                  <Box textAlign="left">
+                    <Typography fontWeight={700}>{action.label}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {action.description}
+                    </Typography>
+                  </Box>
+                </Button>
+              ))}
+            </Box>
+          </CardContent>
+        </Card>
+      </Container>
     </Box>
   );
 };
