@@ -1,0 +1,2 @@
+# Ignore local helper scripts that run in Node (not bundled by Metro)
+scripts/
