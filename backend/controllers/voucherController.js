@@ -90,6 +90,9 @@ export const createVoucher = async (req, res) => {
       expiresAt,
       stackable,
       highlightText,
+      aiImageUrl,
+      aiDescription,
+      freeShipping,
     } = req.body;
     if (!code || !type || typeof value !== "number") {
       return res.status(400).json({ message: "Missing voucher fields" });
@@ -111,6 +114,9 @@ export const createVoucher = async (req, res) => {
       active: true,
       stackable: Boolean(stackable),
       highlightText: highlightText || "",
+      aiImageUrl: aiImageUrl || "",
+      aiDescription: aiDescription || "",
+      freeShipping: Boolean(freeShipping),
       ...targetFields,
     });
 
@@ -246,6 +252,7 @@ export const applyVoucher = async (req, res) => {
       minOrderValue: voucher.minOrderValue || 0,
       sellerId: voucher.sellerId ? String(voucher.sellerId) : null,
       shopId: voucher.shopId ? String(voucher.shopId) : null,
+      freeShipping: Boolean(voucher.freeShipping),
     });
   } catch (err) {
     console.error("applyVoucher error:", err);
@@ -278,6 +285,9 @@ export const createSellerVoucher = async (req, res) => {
       usageLimit,
       expiresAt,
       shopId,
+      aiImageUrl,
+      aiDescription,
+      freeShipping,
     } = req.body;
     if (!code || !type || typeof value !== "number")
       return res.status(400).json({ message: "Missing voucher fields" });
@@ -298,6 +308,9 @@ export const createSellerVoucher = async (req, res) => {
       active: true,
       stackable: Boolean(req.body.stackable),
       highlightText: req.body.highlightText || "",
+      aiImageUrl: aiImageUrl || "",
+      aiDescription: aiDescription || "",
+      freeShipping: Boolean(freeShipping),
       ...targetFields,
     });
 

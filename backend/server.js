@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
+import os from "os";
 import { Server as IOServer } from "socket.io";
 import { init as initAiModels } from "./utils/aiModelManager.js";
 import { initSocket } from "./utils/socket.js";
@@ -21,6 +22,7 @@ import orderRoutes from "./routes/orderRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
 import profileRoutes from "./routes/profileRoutes.js";
+import reportRoutes from "./routes/reportRoutes.js";
 import reviewRoutes from "./routes/reviewRoutes.js";
 import sellerRoutes from "./routes/sellerRoutes.js";
 import shipperApplicationRoutes from "./routes/shipperApplicationRoutes.js";
@@ -42,9 +44,37 @@ app.use(express.json({ limit: "20mb" }));
 app.use(express.urlencoded({ limit: "20mb", extended: true }));
 app.use(cookieParser());
 
+// Support multiple allowed client origins (comma-separated in env)
+const clientOrigin = process.env.CLIENT_ORIGIN || "http://localhost:5173";
+const allowedOrigins = clientOrigin
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// In development, allow all origins to make it easy for emulators/devices to connect.
+const isDev = (process.env.NODE_ENV || "development") !== "production";
+
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN,
+    origin: (origin, callback) => {
+      // Allow non-browser (native) or server-to-server requests
+      if (!origin) return callback(null, true);
+      if (isDev) return callback(null, true);
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes("*")) {
+        return callback(null, true);
+      }
+      // allow any localhost origin (different dev ports)
+      try {
+        const u = new URL(origin);
+        if (u.hostname === "localhost") return callback(null, true);
+      } catch (e) {
+        // if URL parsing fails, fall through to denial
+      }
+      return callback(
+        new Error("CORS policy: This origin is not allowed"),
+        false
+      );
+    },
     credentials: true,
   })
 );
@@ -73,6 +103,7 @@ app.get("/api/health", (req, res) =>
     version: process.env.npm_package_version || "1.0.0",
   })
 );
+app.use("/api/reports", reportRoutes);
 app.use("/api", userRoutes);
 app.use("/api/checkout", checkoutRoutes);
 app.use("/api/admin", adminRoutes);
@@ -88,7 +119,26 @@ app.get("/", (req, res) => res.send("✅ QQ Ecommerce API running"));
 const server = http.createServer(app);
 export const io = new IOServer(server, {
   cors: {
-    origin: process.env.CLIENT_ORIGIN,
+    // socket.io accepts an array of origins as well.
+    // Avoid using wildcard '*' together with credentials: true because browsers reject that.
+    // Instead echo back the request origin in dev and validate against allowedOrigins in prod.
+    origin: (origin, callback) => {
+      // allow non-browser requests
+      if (!origin) return callback(null, true);
+      if (isDev) return callback(null, true);
+      if (allowedOrigins.includes(origin) || allowedOrigins.includes("*"))
+        return callback(null, true);
+      try {
+        const u = new URL(origin);
+        if (u.hostname === "localhost") return callback(null, true);
+      } catch (e) {
+        // ignore
+      }
+      return callback(
+        new Error("CORS policy: This origin is not allowed"),
+        false
+      );
+    },
     methods: ["GET", "POST", "PUT", "PATCH"],
     credentials: true,
   },
@@ -157,9 +207,38 @@ const start = async () => {
     setInterval(() => autoApprovePendingProducts(io), INTERVAL_MS);
     setInterval(() => autoCancelExpiredOrders(io), INTERVAL_MS);
 
-    server.listen(PORT, () =>
-      console.log(`Server running at http://localhost:${PORT}`)
-    );
+    // Bind explicitly to 0.0.0.0 so emulator/device on the LAN can reach the server.
+    server.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on 0.0.0.0:${PORT} (listening)`);
+
+      // Helpful developer output: show localhost and LAN IP addresses that can be used to reach the server.
+      try {
+        const nets = os.networkInterfaces();
+        const addresses = [];
+        for (const name of Object.keys(nets)) {
+          for (const net of nets[name]) {
+            // skip non-IPv4 and internal (loopback) addresses
+            if (net.family !== "IPv4" || net.internal) continue;
+            addresses.push(net.address);
+          }
+        }
+
+        console.log(`Local: http://localhost:${PORT}`);
+        if (addresses.length > 0) {
+          addresses.forEach((addr) =>
+            console.log(`On Your Network: http://${addr}:${PORT}`)
+          );
+        } else {
+          console.log("On Your Network: <no IPv4 address detected>");
+        }
+      } catch (e) {
+        console.log(
+          `Server started. (failed to enumerate network interfaces: ${
+            e?.message ?? e
+          })`
+        );
+      }
+    });
   } catch (err) {
     console.error("DB connect error", err);
     process.exit(1);

@@ -215,6 +215,14 @@ export default function CartPage() {
 
   const voucherDiscount = selectedVoucher?.discount ?? 0;
   const finalTotal = Math.max(0, totalPrice - voucherDiscount);
+  const cartItemCount = cart?.items.length ?? 0;
+  const totalQuantity = useMemo(() => {
+    if (!cart) return 0;
+    return cart.items.reduce((acc, item) => acc + (item.quantity || 0), 0);
+  }, [cart]);
+  const FREE_SHIPPING_THRESHOLD = 500000;
+  const qualifiesFreeShipping = finalTotal >= FREE_SHIPPING_THRESHOLD;
+  const amountToFreeShipping = Math.max(0, FREE_SHIPPING_THRESHOLD - finalTotal);
 
   const loadUserVouchers = useCallback(
     async (total: number) => {
@@ -378,317 +386,489 @@ export default function CartPage() {
   // ✅ Empty cart UI
   if (!cart || cart.items.length === 0) {
     return (
-      <Container sx={{ textAlign: "center", mt: 12 }}>
-        <Typography variant="h4" fontWeight={700} mb={2}>
-          Giỏ hàng của bạn đang trống 🛒
-        </Typography>
-        <Button
-          variant="contained"
-          size="large"
-          onClick={() => navigate("/home")}
-        >
-          Tiếp tục mua sắm
-        </Button>
-      </Container>
+      <Box
+        sx={{
+          minHeight: "100vh",
+          background: "radial-gradient(circle at 20% 20%, #fdf2ff, #eef4ff 45%, #f5fbff 100%)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          p: 3,
+        }}
+      >
+        <Container maxWidth="md">
+          <Paper
+            sx={{
+              borderRadius: 5,
+              p: { xs: 4, md: 6 },
+              background: "linear-gradient(135deg, rgba(255,255,255,0.95), rgba(239,246,255,0.92))",
+              border: "1px solid rgba(226,232,255,0.8)",
+              boxShadow: "0 30px 80px rgba(148,163,184,0.35)",
+            }}
+          >
+            <Stack direction={{ xs: "column", md: "row" }} spacing={4} alignItems="center">
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="overline" sx={{ letterSpacing: 6, color: "#94a3b8" }}>
+                  EMPTY CART
+                </Typography>
+                <Typography variant="h3" fontWeight={900} sx={{ color: "#0f172a", mb: 2 }}>
+                  Giỏ hàng của bạn đang trống
+                </Typography>
+                <Typography sx={{ color: "#475569", mb: 3 }}>
+                  Hãy khám phá vô vàn sản phẩm mới, theo dõi deal tốt và quay lại đây khi bạn sẵn sàng thanh toán.
+                </Typography>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 3 }}>
+                  <Chip icon={<LocalOfferOutlinedIcon />} label="Flash sale mỗi ngày" color="primary" variant="outlined" />
+                  <Chip icon={<ShoppingCartCheckoutIcon />} label="Thanh toán an toàn" color="primary" variant="outlined" />
+                </Stack>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    sx={{
+                      px: 4,
+                      py: 1.5,
+                      borderRadius: 999,
+                      background: "linear-gradient(120deg, #4338ca, #a855f7)",
+                      boxShadow: "0 20px 45px rgba(79,70,229,0.35)",
+                      textTransform: "none",
+                      fontWeight: 700,
+                    }}
+                    onClick={() => navigate("/products")}
+                  >
+                    Khám phá ưu đãi
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="large"
+                    sx={{ borderRadius: 999, textTransform: "none", fontWeight: 700 }}
+                    onClick={() => navigate("/home")}
+                  >
+                    Về trang chủ
+                  </Button>
+                </Stack>
+              </Box>
+              <Box
+                sx={{
+                  flex: 1,
+                  width: "100%",
+                  borderRadius: 4,
+                  background: "radial-gradient(circle at 30% 30%, rgba(67,56,202,0.15), rgba(67,56,202,0.05))",
+                  border: "1px dashed rgba(99,102,241,0.4)",
+                  p: 4,
+                  textAlign: "center",
+                }}
+              >
+                <ShoppingCartCheckoutIcon sx={{ fontSize: 96, color: "#6366f1", mb: 2 }} />
+                <Typography fontWeight={700} color="#4338ca">
+                  Lưu sản phẩm để chúng tôi giữ hộ bạn.
+                </Typography>
+                <Typography color="#6b7280">Đơn hàng sẽ tự động đồng bộ giữa web và app.</Typography>
+              </Box>
+            </Stack>
+          </Paper>
+        </Container>
+      </Box>
     );
   }
 
   // ✅ UI chính
   return (
     <>
-      <Box sx={{ py: 6 }}>
-        <Container>
-        {/* Header */}
-        <Box sx={{ textAlign: "center", mb: 6 }}>
-          <Chip
-            label={`${cart.items.length} sản phẩm`}
-            sx={{
-              mb: 2,
-              background: "linear-gradient(90deg, #1976d2, #42a5f5)",
-              color: "white",
-            }}
-          />
-          <Typography variant="h3" fontWeight={800}>
-            🛍 Giỏ hàng của bạn
-          </Typography>
-        </Box>
-
-        <Grid container spacing={4}>
-          {/* LEFT */}
-          <Grid item xs={12} md={8}>
-            {cart.items.map((item, index) => (
-              <motion.div
-                key={item.productId._id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: index * 0.1 }}
-              >
-                <Paper
-                  sx={{
-                    p: 3,
-                    mb: 3,
-                    borderRadius: 4,
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    background: theme.palette.background.paper,
-                    boxShadow: "0 4px 20px rgba(25,118,210,0.1)",
-                  }}
-                >
-                  <Box display="flex" alignItems="center" gap={3}>
-                    <Box
-                      component="img"
-                      src={
-                        item.productId.images[0] ||
-                        "https://via.placeholder.com/120"
-                      }
-                      sx={{
-                        width: 120,
-                        height: 120,
-                        borderRadius: 3,
-                        objectFit: "cover",
-                      }}
-                    />
-                    <Box>
-                      <Typography fontWeight={700} variant="h6">
-                        {item.productId.title}
-                      </Typography>
-                      <Typography
-                        variant="h6"
-                        sx={{
-                          background:
-                            "linear-gradient(90deg, #1976d2, #42a5f5)",
-                          WebkitBackgroundClip: "text",
-                          WebkitTextFillColor: "transparent",
-                        }}
-                      >
-                        {item.productId.price.toLocaleString("vi-VN")}₫
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {/* Quantity */}
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        alignItems: "center",
-                        p: 0.5,
-                        borderRadius: 3,
-                        background: "rgba(25,118,210,0.05)",
-                      }}
-                    >
-                      <IconButton
-                        size="small"
-                        onClick={() =>
-                          handleUpdateQuantity(
-                            item.productId._id,
-                            item.quantity - 1
-                          )
-                        }
-                        disabled={
-                          item.quantity <= 1 ||
-                          updatingItemId === item.productId._id
-                        }
-                      >
-                        -
-                      </IconButton>
-
-                      <TextField
-                        type="number"
-                        size="small"
-                        value={item.quantity}
-                        onChange={(e) =>
-                          handleUpdateQuantity(
-                            item.productId._id,
-                            Number(e.target.value)
-                          )
-                        }
-                        sx={{
-                          width: 60,
-                          "& input": { textAlign: "center" },
-                        }}
-                      />
-
-                      <IconButton
-                        size="small"
-                        onClick={() =>
-                          handleUpdateQuantity(
-                            item.productId._id,
-                            item.quantity + 1
-                          )
-                        }
-                        disabled={updatingItemId === item.productId._id}
-                      >
-                        +
-                      </IconButton>
-                    </Box>
-
-                    {/* Remove */}
-                    {updatingItemId === item.productId._id ? (
-                      <CircularProgress size={24} />
-                    ) : (
-                      <IconButton
-                        onClick={() =>
-                          handleRemoveItem(item.productId._id)
-                        }
-                        sx={{
-                          "&:hover": {
-                            background: "error.main",
-                            color: "white",
-                          },
-                        }}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    )}
-                  </Box>
-                </Paper>
-              </motion.div>
-            ))}
-
-            {/* Promo Banner */}
+      <Box
+        sx={{
+          minHeight: "100vh",
+          background: "radial-gradient(circle at 10% 10%, #fdf2ff, #eef4ff 40%, #f5fbff 100%)",
+          py: { xs: 4, md: 6 },
+          px: { xs: 2, md: 0 },
+        }}
+      >
+        <Container maxWidth="xl">
+          <Stack spacing={5}>
             <Paper
               sx={{
-                p: 3,
-                borderRadius: 4,
-                mt: 2,
-                background:
-                  "linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)",
-                color: "white",
-                display: "flex",
-                alignItems: "center",
-                gap: 2,
+                borderRadius: 5,
+                p: { xs: 4, md: 5 },
+                background: "linear-gradient(135deg, #0f172a, #1d4ed8)",
+                color: "#fff",
+                position: "relative",
+                overflow: "hidden",
+                boxShadow: "0 35px 90px rgba(15,23,42,0.45)",
               }}
             >
-              <LocalOfferOutlinedIcon sx={{ fontSize: 40 }} />
-              <Box>
-                <Typography variant="h6" fontWeight={700}>
-                  Giảm ngay 15% cho đơn hàng này 🎉
-                </Typography>
-                <Typography variant="body2">
-                  Áp dụng tự động khi thanh toán
-                </Typography>
-              </Box>
-            </Paper>
-          </Grid>
-
-          {/* RIGHT – SUMMARY */}
-          <Grid item xs={12} md={4}>
-            <Paper
-              sx={{
-                p: 4,
-                borderRadius: 4,
-                position: "sticky",
-                top: 100,
-                boxShadow: "0 8px 32px rgba(25,118,210,0.15)",
-              }}
-            >
-              <Typography variant="h5" fontWeight={700} mb={2}>
-                Tóm tắt đơn hàng
-              </Typography>
-              <Divider sx={{ mb: 3 }} />
-
-              <Box display="flex" justifyContent="space-between" mb={2}>
-                <Typography>Tổng sản phẩm:</Typography>
-                <Typography fontWeight={700}>
-                  {cart.items.length}
-                </Typography>
-              </Box>
-
-              <Box display="flex" justifyContent="space-between" mb={2}>
-                <Typography>Tạm tính:</Typography>
-                <Typography fontWeight={700}>
-                  {totalPrice.toLocaleString("vi-VN")}₫
-                </Typography>
-              </Box>
-
-              <Divider sx={{ my: 3 }} />
-
-              <Stack spacing={2} mb={3}>
-                <Box display="flex" justifyContent="space-between" alignItems="center">
-                  <Box>
-                    <Typography fontWeight={700}>Voucher</Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {selectedVoucher ? `Đang dùng mã ${selectedVoucher.code}` : "Chọn voucher phù hợp cho đơn hàng này"}
-                    </Typography>
-                  </Box>
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<ConfirmationNumberOutlinedIcon />}
-                    onClick={() => setVoucherDialogOpen(true)}
-                  >
-                    {selectedVoucher ? "Đổi mã" : "Chọn mã"}
-                  </Button>
-                </Box>
-
-                {selectedVoucher && (
-                  <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
-                    <Chip label={selectedVoucher.code} color="primary" />
-                    <Typography color="success.main" fontWeight={700}>
-                      - {formatCurrency(voucherDiscount)}
-                    </Typography>
-                    <Button size="small" color="error" onClick={handleRemoveVoucher}>
-                      Bỏ voucher
-                    </Button>
-                  </Stack>
-                )}
-              </Stack>
-
-              {voucherDiscount > 0 && (
-                <Box display="flex" justifyContent="space-between" mb={2}>
-                  <Typography color="success.main">Giảm giá</Typography>
-                  <Typography color="success.main" fontWeight={700}>
-                    - {formatCurrency(voucherDiscount)}
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.2), transparent 55%)",
+                }}
+              />
+              <Stack spacing={3} sx={{ position: "relative", zIndex: 1 }}>
+                <Box>
+                  <Typography variant="overline" sx={{ letterSpacing: 6, color: "rgba(255,255,255,0.7)" }}>
+                    QQ CART
+                  </Typography>
+                  <Typography variant="h3" fontWeight={900} sx={{ mb: 1 }}>
+                    Sẵn sàng thanh toán?
+                  </Typography>
+                  <Typography sx={{ color: "rgba(255,255,255,0.75)" }}>
+                    Theo dõi trạng thái từng sản phẩm, tận dụng voucher tốt nhất và đừng bỏ lỡ ưu đãi vận chuyển hôm nay.
                   </Typography>
                 </Box>
-              )}
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2} flexWrap="wrap">
+                  {[
+                    { label: "Sản phẩm", value: cartItemCount },
+                    { label: "Số lượng", value: totalQuantity },
+                    { label: "Tạm tính", value: formatCurrency(totalPrice) },
+                    { label: "Voucher", value: voucherDiscount > 0 ? `-${formatCurrency(voucherDiscount)}` : "Chưa áp dụng", sub: selectedVoucher?.code },
+                  ].map((stat) => (
+                    <Box
+                      key={stat.label}
+                      sx={{
+                        flex: "1 1 180px",
+                        borderRadius: 3,
+                        border: "1px solid rgba(255,255,255,0.25)",
+                        background: "rgba(255,255,255,0.08)",
+                        p: 2.5,
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.7)" }}>
+                        {stat.label}
+                      </Typography>
+                      <Typography variant="h5" fontWeight={800}>
+                        {stat.value}
+                      </Typography>
+                      {stat.sub && (
+                        <Typography variant="caption" sx={{ color: "rgba(255,255,255,0.7)" }}>
+                          {stat.sub}
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+                </Stack>
+                <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
+                  <Chip
+                    label={qualifiesFreeShipping ? "Miễn phí vận chuyển nội thành" : "Chưa đạt miễn phí vận chuyển"}
+                    sx={{
+                      background: qualifiesFreeShipping ? "rgba(74,222,128,0.2)" : "rgba(248,250,252,0.2)",
+                      color: "#fff",
+                      borderColor: "rgba(255,255,255,0.4)",
+                    }}
+                    variant="outlined"
+                  />
+                  <Typography sx={{ color: "rgba(255,255,255,0.8)" }}>
+                    {qualifiesFreeShipping
+                      ? "Bạn đã đủ điều kiện miễn phí ship cho đơn này."
+                      : `Mua thêm ${formatCurrency(amountToFreeShipping)} để nhận miễn phí ship.`}
+                  </Typography>
+                </Stack>
+              </Stack>
+            </Paper>
 
-              <Box
-                display="flex"
-                justifyContent="space-between"
-                mb={4}
-                alignItems="center"
-              >
-                <Typography variant="h6" fontWeight={700}>
-                  Tổng cộng:
-                </Typography>
-                <Typography
-                  variant="h5"
-                  fontWeight={800}
+            <Grid container spacing={4}>
+              <Grid item xs={12} md={8}>
+                <Stack spacing={3}>
+                  {cart.items.map((item, index) => {
+                    const stock = (item.productId as unknown as { stock?: number })?.stock ?? 0;
+                    const stockUsage = stock > 0 ? Math.min(100, (item.quantity / stock) * 100) : 100;
+                    const displayImage = item.productId.images?.[0] || "https://via.placeholder.com/160";
+                    const shortId = item.productId._id ? item.productId._id.slice(-6).toUpperCase() : "N/A";
+                    return (
+                      <motion.div
+                        key={item.productId._id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.35, delay: index * 0.08 }}
+                      >
+                        <Paper
+                          sx={{
+                            p: { xs: 3, md: 4 },
+                            borderRadius: 4,
+                            background: theme.palette.mode === "dark" ? "rgba(15,23,42,0.6)" : "rgba(255,255,255,0.9)",
+                            border: "1px solid rgba(226,232,240,0.8)",
+                            boxShadow: "0 25px 65px rgba(15,23,42,0.12)",
+                          }}
+                        >
+                          <Stack direction={{ xs: "column", md: "row" }} spacing={3}>
+                            <Box
+                              component="img"
+                              src={displayImage}
+                              alt={item.productId.title}
+                              sx={{
+                                width: { xs: "100%", sm: 160 },
+                                height: { xs: 200, sm: 160 },
+                                borderRadius: 3,
+                                objectFit: "cover",
+                                boxShadow: "0 20px 40px rgba(15,23,42,0.2)",
+                              }}
+                            />
+                            <Box flex={1}>
+                              <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1}>
+                                <Box>
+                                  <Typography variant="h6" fontWeight={800} color="#0f172a">
+                                    {item.productId.title}
+                                  </Typography>
+                                  <Typography color="text.secondary">Mã sản phẩm: #{shortId}</Typography>
+                                </Box>
+                                <Typography
+                                  variant="h5"
+                                  fontWeight={800}
+                                  sx={{
+                                    background: "linear-gradient(120deg, #2563eb, #7c3aed)",
+                                    WebkitBackgroundClip: "text",
+                                    WebkitTextFillColor: "transparent",
+                                  }}
+                                >
+                                  {item.productId.price.toLocaleString("vi-VN")}₫
+                                </Typography>
+                              </Stack>
+                              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ mt: 1 }}>
+                                <Chip label={`Kho: ${stock}`} size="small" variant="outlined" color={stock <= 5 ? "error" : "default"} />
+                                <Chip label={`Đã chọn: ${item.quantity}`} size="small" variant="outlined" />
+                                {stock > 0 && stock - item.quantity <= 3 && <Chip label="Sắp hết" size="small" color="error" />}
+                              </Stack>
+                              <Box sx={{ mt: 2 }}>
+                                <LinearProgress
+                                  variant="determinate"
+                                  value={stockUsage}
+                                  sx={{ height: 8, borderRadius: 999, backgroundColor: "rgba(148,163,184,0.3)" }}
+                                />
+                                <Typography variant="caption" color="text.secondary">
+                                  Số lượng bạn chọn chiếm {Math.round(stockUsage)}% tồn kho hiện tại.
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Stack>
+
+                          <Stack
+                            direction={{ xs: "column", md: "row" }}
+                            spacing={2}
+                            alignItems={{ md: "center" }}
+                            justifyContent="space-between"
+                            sx={{ mt: 3 }}
+                          >
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                borderRadius: 999,
+                                background: "rgba(99,102,241,0.08)",
+                                p: 0.5,
+                              }}
+                            >
+                              <IconButton
+                                onClick={() => handleUpdateQuantity(item.productId._id, item.quantity - 1)}
+                                disabled={item.quantity <= 1 || updatingItemId === item.productId._id}
+                              >
+                                -
+                              </IconButton>
+                              <TextField
+                                type="number"
+                                size="small"
+                                value={item.quantity}
+                                onChange={(e) => handleUpdateQuantity(item.productId._id, Number(e.target.value))}
+                                sx={{
+                                  width: 80,
+                                  "& .MuiInputBase-input": { textAlign: "center", fontWeight: 700 },
+                                  background: "#fff",
+                                  borderRadius: 2,
+                                }}
+                              />
+                              <IconButton
+                                onClick={() => handleUpdateQuantity(item.productId._id, item.quantity + 1)}
+                                disabled={updatingItemId === item.productId._id}
+                              >
+                                +
+                              </IconButton>
+                            </Box>
+
+                            <Stack direction="row" spacing={1.5} alignItems="center">
+                              {updatingItemId === item.productId._id ? (
+                                <CircularProgress size={24} />
+                              ) : (
+                                <Tooltip title="Xóa khỏi giỏ">
+                                  <IconButton
+                                    onClick={() => handleRemoveItem(item.productId._id)}
+                                    sx={{ border: "1px solid rgba(239,68,68,0.3)" }}
+                                  >
+                                    <DeleteIcon color="error" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </Stack>
+                          </Stack>
+                        </Paper>
+                      </motion.div>
+                    );
+                  })}
+
+                  <Paper
+                    sx={{
+                      borderRadius: 4,
+                      p: { xs: 3, md: 4 },
+                      background: "linear-gradient(120deg, #0ea5e9, #6366f1)",
+                      color: "#fff",
+                      display: "flex",
+                      flexDirection: { xs: "column", md: "row" },
+                      alignItems: "center",
+                      gap: 3,
+                    }}
+                  >
+                    <LocalOfferOutlinedIcon sx={{ fontSize: 48 }} />
+                    <Box>
+                      <Typography variant="h5" fontWeight={800}>
+                        Nhập thêm voucher để tiết kiệm nhiều hơn
+                      </Typography>
+                      <Typography sx={{ color: "rgba(255,255,255,0.8)", mb: 2 }}>
+                        Hệ thống gợi ý tự động sẽ kiểm tra những mã tốt nhất dựa trên giỏ hàng của bạn.
+                      </Typography>
+                      <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                        <Button variant="contained" color="secondary" onClick={() => setVoucherDialogOpen(true)} sx={{ textTransform: "none", fontWeight: 700 }}>
+                          Xem gợi ý voucher
+                        </Button>
+                        {bestVoucher && (
+                          <Button
+                            variant="outlined"
+                            color="inherit"
+                            onClick={() => handleApplyBestVoucher(bestVoucher.code)}
+                            disabled={applyingVoucherCode === bestVoucher.code}
+                            sx={{ textTransform: "none", color: "#fff", borderColor: "rgba(255,255,255,0.6)" }}
+                          >
+                            {applyingVoucherCode === bestVoucher.code ? "Đang áp dụng..." : `Dùng mã ${bestVoucher.code}`}
+                          </Button>
+                        )}
+                      </Stack>
+                    </Box>
+                  </Paper>
+                </Stack>
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Paper
                   sx={{
-                    background:
-                      "linear-gradient(90deg, #1976d2, #42a5f5)",
-                    WebkitBackgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
+                    p: { xs: 3, md: 4 },
+                    borderRadius: 5,
+                    position: "sticky",
+                    top: 120,
+                    background: "linear-gradient(180deg, rgba(255,255,255,0.95), rgba(241,245,255,0.9))",
+                    border: "1px solid rgba(226,232,255,0.9)",
+                    boxShadow: "0 30px 70px rgba(148,163,184,0.35)",
                   }}
                 >
-                  {formatCurrency(finalTotal)}
-                </Typography>
-              </Box>
+                  <Stack spacing={3}>
+                    <Box>
+                      <Typography variant="overline" sx={{ letterSpacing: 4, color: "#94a3b8" }}>
+                        CHECKOUT SUMMARY
+                      </Typography>
+                      <Typography variant="h5" fontWeight={800}>
+                        Tóm tắt đơn hàng
+                      </Typography>
+                    </Box>
 
-              {/* ✅ BUTTON CHECKOUT – CHUYỂN THEO ID */}
-              <Button
-                fullWidth
-                size="large"
-                variant="contained"
-                startIcon={<ShoppingCartCheckoutIcon />}
-                sx={{
-                  py: 2,
-                  borderRadius: "50px",
-                  fontWeight: 700,
-                  fontSize: "1.1rem",
-                  background:
-                    "linear-gradient(90deg, #1976d2, #42a5f5)",
-                }}
-                onClick={() => navigate(`/checkout/cart/${cart._id}`)}
-              >
-                Tiến hành thanh toán
-              </Button>
-            </Paper>
-          </Grid>
-        </Grid>
+                    <Box>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                        <Typography fontWeight={700}>Ưu đãi vận chuyển</Typography>
+                        <Typography color={qualifiesFreeShipping ? "success.main" : "warning.main"} fontWeight={700}>
+                          {qualifiesFreeShipping ? "Đủ điều kiện" : `Còn ${formatCurrency(amountToFreeShipping)}`}
+                        </Typography>
+                      </Stack>
+                      <LinearProgress
+                        variant="determinate"
+                        value={Math.min(100, (finalTotal / FREE_SHIPPING_THRESHOLD) * 100)}
+                        sx={{ height: 10, borderRadius: 999, backgroundColor: "rgba(148,163,184,0.4)" }}
+                      />
+                      <Typography variant="caption" color="text.secondary">
+                        {qualifiesFreeShipping ? "QQ hỗ trợ phí ship nội thành cho đơn này." : "Tăng giá trị đơn hàng để nhận miễn phí ship."}
+                      </Typography>
+                    </Box>
+
+                    <Stack spacing={1.5}>
+                      {[
+                        { label: "Tổng sản phẩm", value: `${cartItemCount}` },
+                        { label: "Tổng số lượng", value: `${totalQuantity}` },
+                        { label: "Tạm tính", value: formatCurrency(totalPrice) },
+                      ].map((row) => (
+                        <Box key={row.label} display="flex" justifyContent="space-between">
+                          <Typography color="text.secondary">{row.label}</Typography>
+                          <Typography fontWeight={700}>{row.value}</Typography>
+                        </Box>
+                      ))}
+                    </Stack>
+
+                    <Divider />
+
+                    <Stack spacing={1.5}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="center">
+                        <Box>
+                          <Typography fontWeight={700}>Voucher</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {selectedVoucher ? `Đang áp dụng mã ${selectedVoucher.code}` : "Chọn hoặc nhập voucher phù hợp"}
+                          </Typography>
+                        </Box>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<ConfirmationNumberOutlinedIcon />}
+                          onClick={() => setVoucherDialogOpen(true)}
+                        >
+                          {selectedVoucher ? "Đổi" : "Chọn"}
+                        </Button>
+                      </Stack>
+
+                      {selectedVoucher && (
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                          <Chip label={selectedVoucher.code} color="primary" />
+                          <Typography color="success.main" fontWeight={700}>
+                            - {formatCurrency(voucherDiscount)}
+                          </Typography>
+                          <Button size="small" color="error" onClick={handleRemoveVoucher}>
+                            Bỏ voucher
+                          </Button>
+                        </Stack>
+                      )}
+                    </Stack>
+
+                    {voucherDiscount > 0 && (
+                      <Box display="flex" justifyContent="space-between">
+                        <Typography color="success.main" fontWeight={600}>Giảm giá</Typography>
+                        <Typography color="success.main" fontWeight={700}>
+                          - {formatCurrency(voucherDiscount)}
+                        </Typography>
+                      </Box>
+                    )}
+
+                    <Box display="flex" justifyContent="space-between" alignItems="center">
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Tổng cộng
+                        </Typography>
+                        <Typography variant="h4" fontWeight={900}>
+                          {formatCurrency(finalTotal)}
+                        </Typography>
+                      </Box>
+                      <Tooltip title="Đi tới bước thanh toán">
+                        <Button
+                          variant="contained"
+                          startIcon={<ShoppingCartCheckoutIcon />}
+                          onClick={() => navigate(`/checkout/cart/${cart._id}`)}
+                          sx={{
+                            borderRadius: 999,
+                            py: 1.5,
+                            px: 4,
+                            textTransform: "none",
+                            fontWeight: 700,
+                            background: "linear-gradient(120deg, #2563eb, #7c3aed)",
+                          }}
+                        >
+                          Thanh toán
+                        </Button>
+                      </Tooltip>
+                    </Box>
+                  </Stack>
+                </Paper>
+              </Grid>
+            </Grid>
+          </Stack>
         </Container>
       </Box>
 

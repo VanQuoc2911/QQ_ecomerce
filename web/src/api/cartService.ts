@@ -75,6 +75,13 @@ export const cartService = {
 
   // ✅ Thêm vào giỏ
   addToCart: async (item: CartItem): Promise<CartResponse> => {
+    // Prevent sellers from adding products to cart (business rule)
+    try {
+      const role = localStorage.getItem("userRole");
+      if (role === "seller") throw new Error("Sellers are not allowed to purchase items.");
+    } catch (err) {
+      // If storage isn't available, continue and let server enforce rules
+    }
     const product: ApiProduct = await productService.getProductById(item.productId);
 
     if (item.quantity > product.stock) {
@@ -90,6 +97,13 @@ export const cartService = {
 
   // ✅ Cập nhật số lượng
   updateQuantity: async (item: CartItem): Promise<CartResponse> => {
+    // Prevent sellers from modifying cart quantities
+    try {
+      const role = localStorage.getItem("userRole");
+      if (role === "seller") throw new Error("Sellers are not allowed to purchase items.");
+    } catch (err) {
+      // ignore
+    }
     const product: ApiProduct = await productService.getProductById(item.productId);
 
     if (item.quantity > product.stock) {
@@ -147,6 +161,13 @@ export const cartService = {
       rushDistanceKm?: number;
     };
   }): Promise<CheckoutResult> => {
+    // Prevent sellers from performing checkout
+    try {
+      const role = localStorage.getItem("userRole");
+      if (role === "seller") throw new Error("Sellers are not allowed to perform purchases.");
+    } catch (err) {
+      // ignore and let server enforce
+    }
     // Kiểm tra tồn kho
     for (const item of payload.items) {
       const product = await productService.getProductById(item.productId._id);

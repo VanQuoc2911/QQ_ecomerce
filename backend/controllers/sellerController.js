@@ -385,9 +385,13 @@ export const getSellerStats = async (req, res) => {
 
     // Calculate stats
     const totalSales = allOrders.length;
-    const totalRevenue = completedOrders.reduce((sum, order) => {
+    const grossRevenue = completedOrders.reduce((sum, order) => {
       return sum + (order.totalAmount || 0);
     }, 0);
+    const serviceFeeTotal = completedOrders.reduce((sum, order) => {
+      return sum + (order.sellerServiceFee || 0);
+    }, 0);
+    const totalRevenue = Math.max(grossRevenue - serviceFeeTotal, 0);
     const completedCount = completedOrders.length;
     const pendingCount = pendingOrders.length;
     const cancelledCount = allOrders.filter(
@@ -397,20 +401,32 @@ export const getSellerStats = async (req, res) => {
     // Revenue for last 30 days
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const revenueLastMonth = completedOrders
+    const revenueLastMonthGross = completedOrders
       .filter((o) => new Date(o.createdAt) >= thirtyDaysAgo)
       .reduce((sum, order) => {
         return sum + (order.totalAmount || 0);
       }, 0);
+    const revenueLastMonthServiceFee = completedOrders
+      .filter((o) => new Date(o.createdAt) >= thirtyDaysAgo)
+      .reduce((sum, order) => {
+        return sum + (order.sellerServiceFee || 0);
+      }, 0);
+    const revenueLastMonth = Math.max(
+      revenueLastMonthGross - revenueLastMonthServiceFee,
+      0
+    );
 
     res.json({
       totalProducts,
       totalSales,
       totalRevenue,
+      grossRevenue,
+      serviceFeeTotal,
       completedCount,
       pendingCount,
       cancelledCount,
       revenueLastMonth,
+      revenueLastMonthGross,
     });
   } catch (err) {
     console.error("getSellerStats error:", err);

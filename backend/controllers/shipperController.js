@@ -191,6 +191,7 @@ export const getShipperSummary = async (req, res) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    // Counts and recent orders
     const [activeCount, deliveredToday, failedToday, recentOrders] =
       await Promise.all([
         Order.countDocuments({
@@ -211,16 +212,69 @@ export const getShipperSummary = async (req, res) => {
           .sort({ updatedAt: -1 })
           .limit(5)
           .select(
-            "_id totalAmount shippingStatus shippingMethod shippingAddress updatedAt"
+            "_id totalAmount shippingStatus shippingMethod shippingAddress updatedAt shippingFee serviceFee serviceFeePercent"
           )
           .lean(),
       ]);
+
+    const buildNetShippingExpr = () => ({
+      $let: {
+        vars: {
+          net: {
+            $subtract: [
+              { $ifNull: ["$shippingFee", 0] },
+              { $ifNull: ["$serviceFee", 0] },
+            ],
+          },
+        },
+        in: {
+          $cond: [{ $gt: ["$$net", 0] }, "$$net", 0],
+        },
+      },
+    });
+
+    // Calculate income (shipping fee minus service fee) - total and today
+    const incomeAgg = await Order.aggregate([
+      {
+        $match: {
+          shipperId: new mongoose.Types.ObjectId(shipperId),
+          shippingStatus: "delivered",
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalIncome: { $sum: buildNetShippingExpr() },
+        },
+      },
+    ]);
+    const incomeTodayAgg = await Order.aggregate([
+      {
+        $match: {
+          shipperId: new mongoose.Types.ObjectId(shipperId),
+          shippingStatus: "delivered",
+          updatedAt: { $gte: today },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          incomeToday: { $sum: buildNetShippingExpr() },
+        },
+      },
+    ]);
+
+    const totalIncome = (incomeAgg[0] && incomeAgg[0].totalIncome) || 0;
+    const incomeToday =
+      (incomeTodayAgg[0] && incomeTodayAgg[0].incomeToday) || 0;
 
     res.json({
       stats: {
         active: activeCount,
         deliveredToday,
         failedToday,
+        totalIncome,
+        incomeToday,
       },
       recent: recentOrders,
     });
@@ -258,7 +312,7 @@ export const listAssignedOrders = async (req, res) => {
       .sort({ updatedAt: -1 })
       .limit(parsedLimit)
       .select(
-        "_id totalAmount shippingStatus shippingMethod shippingAddress shippingTimeline shippingLocation shippingFee shippingScope status createdAt updatedAt"
+        "_id totalAmount paymentMethod payosPayment.status shippingStatus shippingMethod shippingAddress shippingTimeline shippingLocation shippingFee serviceFee serviceFeePercent shippingScope status createdAt updatedAt"
       )
       .lean();
 
@@ -271,6 +325,133 @@ export const listAssignedOrders = async (req, res) => {
   } catch (err) {
     console.error("listAssignedOrders error", err);
     res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const listAvailableOrders = async (req, res) => {
+  try {
+    const { limit = 20, cursor } = req.query;
+    const parsedLimit = Math.min(Number(limit) || 20, 50);
+
+    const query = { shipperId: null, status: "awaiting_shipment" };
+    if (cursor) {
+      const cursorDate = new Date(cursor);
+      if (!Number.isNaN(cursorDate.getTime())) {
+        query.updatedAt = { $lt: cursorDate };
+      }
+    }
+
+    const orders = await Order.find(query)
+      .sort({ updatedAt: -1 })
+      .limit(parsedLimit)
+      .select(
+        "_id totalAmount paymentMethod payosPayment.status shippingStatus shippingMethod shippingAddress shippingTimeline shippingLocation shippingFee serviceFee serviceFeePercent shippingScope status createdAt updatedAt"
+      )
+      .lean();
+
+    const nextCursor =
+      orders.length === parsedLimit
+        ? orders[orders.length - 1].updatedAt
+        : null;
+    res.json({ orders, nextCursor });
+  } catch (err) {
+    console.error("listAvailableOrders error", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+export const claimOrder = async (req, res) => {
+  try {
+    const shipperId = req.user.id;
+    const { orderId } = req.params;
+    if (!orderId) return res.status(400).json({ message: "Missing order id" });
+
+    const order = await Order.findById(orderId);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (order.shipperId)
+      return res.status(400).json({ message: "Order already claimed" });
+    if (order.status !== "awaiting_shipment")
+      return res
+        .status(400)
+        .json({ message: "Order is not available for claiming" });
+
+    // assign
+    order.shipperId = shipperId;
+    order.shippingStatus = "assigned";
+    order.shippingUpdatedAt = new Date();
+    order.shippingTimeline = order.shippingTimeline || [];
+    order.shippingTimeline.push({
+      code: "assigned",
+      label: "Đã phân công shipper",
+      note: `Claimed by shipper ${shipperId}`,
+      at: new Date(),
+      source: "shipper",
+    });
+
+    await order.save();
+
+    try {
+      // Ensure shipper has completed profile/application (vehicle info and contact)
+      try {
+        const ShipperApplication = (
+          await import("../models/ShipperApplication.js")
+        ).default;
+        const app = await ShipperApplication.findOne({
+          userId: shipperId,
+        }).lean();
+        if (!app || app.status !== "approved") {
+          return res.status(400).json({
+            message:
+              "Vui lòng hoàn thành hồ sơ shipper và được xét duyệt trước khi nhận đơn.",
+          });
+        }
+        const missing = [];
+        if (!app.vehicleInfo || !app.vehicleInfo.vehicleType)
+          missing.push("Loại phương tiện");
+        if (!app.vehicleInfo || !app.vehicleInfo.licensePlate)
+          missing.push("Biển số xe");
+        if (!app.contactInfo || !app.contactInfo.phone)
+          missing.push("Số điện thoại");
+        if (missing.length) {
+          return res.status(400).json({
+            message: `Vui lòng cập nhật hồ sơ shipper: ${missing.join(", ")}`,
+          });
+        }
+
+        // Populate shipper snapshot from application / user
+        const User = (await import("../models/User.js")).default;
+        const shipperUser = await User.findById(shipperId).lean();
+        order.shipperSnapshot = {
+          id: shipperId,
+          name: shipperUser?.name || app.personalInfo?.fullName || "",
+          phone: app.contactInfo?.phone || shipperUser?.phone || "",
+          vehicleType: app.vehicleInfo?.vehicleType || undefined,
+          licensePlate: app.vehicleInfo?.licensePlate || undefined,
+        };
+      } catch (e) {
+        console.warn("claimOrder: failed to validate shipper application", e);
+      }
+      const { getIO } = await import("../utils/socket.js");
+      const io = getIO();
+      if (io) {
+        io.to(order.userId?.toString()).emit("order:shippingAssigned", {
+          orderId: order._id,
+          shippingStatus: order.shippingStatus,
+        });
+        io.to(shipperId.toString()).emit("shipper:orderAssigned", {
+          orderId: order._id,
+          shippingStatus: order.shippingStatus,
+        });
+      }
+    } catch (e) {
+      console.warn("claimOrder socket emit failed", e);
+    }
+
+    res.json({ message: "Order claimed", order });
+  } catch (err) {
+    console.error("claimOrder error", err);
+    res.status(500).json({ message: err.message || "Server error" });
   }
 };
 

@@ -1,17 +1,17 @@
 import { CheckCircleOutline, Close, PersonAdd, Visibility, VisibilityOff } from "@mui/icons-material";
 import {
-  Alert,
-  Backdrop,
-  Box,
-  Button,
-  CircularProgress,
-  Fade,
-  IconButton,
-  InputAdornment,
-  Link,
-  Modal,
-  TextField,
-  Typography,
+    Alert,
+    Backdrop,
+    Box,
+    Button,
+    CircularProgress,
+    Fade,
+    IconButton,
+    InputAdornment,
+    Link,
+    Modal,
+    TextField,
+    Typography,
 } from "@mui/material";
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -31,6 +31,7 @@ const RegisterModal: React.FC<Props> = ({ open, onClose }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const isSellerOnly = import.meta.env.VITE_SELLER_ONLY === "true";
 
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -200,6 +201,11 @@ const RegisterModal: React.FC<Props> = ({ open, onClose }) => {
 
           {/* Form content */}
           <Box sx={{ p: 4, pt: 3 }}>
+            {isSellerOnly ? (
+              <Alert severity="info" sx={{ mb: 3 }}>
+                Chế độ người bán đang bật — đăng ký tài khoản người dùng bị vô hiệu hóa trong chế độ này.
+              </Alert>
+            ) : null}
             {error && (
               <Alert 
                 severity="error" 
@@ -355,7 +361,7 @@ const RegisterModal: React.FC<Props> = ({ open, onClose }) => {
                     background: '#ccc',
                   },
                 }}
-                disabled={loading}
+                disabled={loading || isSellerOnly}
               >
                 {loading ? (
                   <CircularProgress size={24} color="inherit" />

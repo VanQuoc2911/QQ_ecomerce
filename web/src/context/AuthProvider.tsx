@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/exhaustive-deps */
  
 import type { GoogleCredentialResponse } from "@react-oauth/google";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api/axios";
 import type { Role, User } from "../types/User";
 import { AuthContext } from "./AuthContext";
@@ -16,6 +16,8 @@ export const AuthProvider = ({ children }: Props) => {
 
   const adminEmail = import.meta.env.VITE_ADMIN_EMAIL;
   const adminPassword = import.meta.env.VITE_ADMIN_PASSWORD;
+  const isSellerOnly = import.meta.env.VITE_SELLER_ONLY === "true";
+  const isAdminOnly = import.meta.env.VITE_ADMIN_ONLY === "true";
 
   const buildAdminUser = (): User => ({
     id: 0,
@@ -27,9 +29,12 @@ export const AuthProvider = ({ children }: Props) => {
   });
 
   // ✅ Login email/password
-  const login = async (email: string, password: string): Promise<User> => {
-    // ✅ Admin đăng nhập
+  const login = useCallback(async (email: string, password: string): Promise<User> => {
+    // ✅ Admin đăng nhập (chỉ khi đang ở chế độ admin-only)
     if (email === adminEmail && password === adminPassword) {
+      if (!isAdminOnly) {
+        throw new Error("Admin login is disabled in this mode");
+      }
       const adminUser = buildAdminUser();
 
       localStorage.setItem("accessToken", "admin-token");
@@ -45,15 +50,22 @@ export const AuthProvider = ({ children }: Props) => {
       favorites: res.data.user?.favorites ?? [],
     };
 
+    // If running seller-only, only allow login for approved sellers
+    if (isSellerOnly) {
+      if (loggedUser.role !== "seller" || !loggedUser.sellerApproved) {
+        throw new Error("Only approved seller accounts can login in seller-only mode");
+      }
+    }
+
     localStorage.setItem("accessToken", res.data.token);
     localStorage.setItem("refreshToken", res.data.refreshToken);
 
     setUser(loggedUser);
     return loggedUser;
-  };
+  }, [adminEmail, adminPassword, isAdminOnly, isSellerOnly]);
 
   // ✅ Register
-  const register = async (
+  const register = useCallback(async (
     email: string,
     password: string,
     name: string,
@@ -78,18 +90,21 @@ export const AuthProvider = ({ children }: Props) => {
 
     setUser(newUser);
     return newUser;
-  };
+  }, []);
 
   // ✅ Logout
-  const logout = (): void => {
+  const logout = useCallback((): void => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
     setUser(null);
-  };
+  }, []);
 
   // ✅ Refresh user (tự login lại với accessToken)
-  const refreshUser = async (): Promise<void> => {
+  const refreshUser = useCallback(async (): Promise<void> => {
     const token = localStorage.getItem("accessToken");
+
+    // dev debug
+    console.log("[DEV] refreshUser() token=", token, "isAdminOnly=", isAdminOnly);
 
     if (!token) {
       setUser(null);
@@ -98,7 +113,16 @@ export const AuthProvider = ({ children }: Props) => {
 
     // ✅ Admin - auto-restore session when token matches admin token
     if (token === "admin-token") {
-      setUser(buildAdminUser());
+      // only honor admin-token when in admin-only mode
+      if (isAdminOnly) {
+        // dev debug
+        console.log("[DEV] admin-token detected and isAdminOnly=true → restoring Admin user");
+        setUser(buildAdminUser());
+        return;
+      }
+      // otherwise clear token and bail
+      localStorage.removeItem("accessToken");
+      setUser(null);
       return;
     }
 
@@ -108,14 +132,27 @@ export const AuthProvider = ({ children }: Props) => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setUser({ ...res.data, favorites: res.data?.favorites ?? [] });
+      const profileUser = { ...res.data, favorites: res.data?.favorites ?? [] } as User;
+
+      // Enforce seller-only mode: only allow approved sellers
+      if (isSellerOnly) {
+        if (profileUser.role !== "seller" || !profileUser.sellerApproved) {
+          // clean tokens and do not set user
+          localStorage.removeItem("accessToken");
+          localStorage.removeItem("refreshToken");
+          setUser(null);
+          return;
+        }
+      }
+
+      setUser(profileUser);
     } catch {
       setUser(null);
     }
-  };
+  }, [isAdminOnly, isSellerOnly]);
 
   // ✅ GOOGLE LOGIN — chuẩn chỉnh 100%
-  const loginWithGoogle = async (
+  const loginWithGoogle = useCallback(async (
     credentialResponse: GoogleCredentialResponse
   ): Promise<User> => {
     if (!credentialResponse?.credential) {
@@ -148,12 +185,13 @@ export const AuthProvider = ({ children }: Props) => {
     setUser(gUser);
 
     return gUser;
-  };
+  }, []);
 
   // ✅ Tự đăng nhập khi reload page
   useEffect(() => {
-    refreshUser().finally(() => setLoading(false));
-  }, []);
+    // call once on mount
+    void refreshUser().finally(() => setLoading(false));
+  }, [refreshUser]);
 
   // ✅ Lắng nghe sự kiện profileUpdated và cập nhật user
   useEffect(() => {
@@ -162,7 +200,20 @@ export const AuthProvider = ({ children }: Props) => {
     };
     window.addEventListener("profileUpdated", handleProfileUpdated);
     return () => window.removeEventListener("profileUpdated", handleProfileUpdated);
-  }, []);
+  }, [refreshUser]);
+
+  // ✅ Sync user role to localStorage so non-React modules can check permissions
+  useEffect(() => {
+    try {
+      if (user && user.role) {
+        localStorage.setItem("userRole", user.role);
+      } else {
+        localStorage.removeItem("userRole");
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [user]);
 
   // ✅ Admin auto-logout mechanisms
   useEffect(() => {
@@ -201,21 +252,20 @@ export const AuthProvider = ({ children }: Props) => {
     };
   }, [user]);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        role: (user?.role as Role) ?? null,
-        loading,
-        login,
-        register,
-        logout,
-        refreshUser,
-        setUser,
-        loginWithGoogle,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const contextValue = useMemo(
+    () => ({
+      user,
+      role: (user?.role as Role) ?? null,
+      loading,
+      login,
+      register,
+      logout,
+      refreshUser,
+      setUser,
+      loginWithGoogle,
+    }),
+    [user, loading, login, register, logout, refreshUser, setUser, loginWithGoogle]
   );
+
+  return <AuthContext.Provider value={contextValue}>{children}</AuthContext.Provider>;
 };

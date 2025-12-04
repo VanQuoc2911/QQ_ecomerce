@@ -106,28 +106,52 @@ router.get("/reverse", async (req, res) => {
         .status(400)
         .json({ message: "lat and lng must be valid numbers" });
 
-    const ua = { headers: { "User-Agent": "QQ-Ecommerce-App/1.0" } };
+    const googleKey = process.env.GOOGLE_MAPS_API_KEY;
+    if (!googleKey) {
+      return res
+        .status(500)
+        .json({ message: "Google Maps API key is not configured" });
+    }
 
-    // Primary: Nominatim
-    try {
-      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(
-        String(latNum)
-      )}&lon=${encodeURIComponent(
-        String(lngNum)
-      )}&addressdetails=1&accept-language=vi`;
-      const r = await fetchWithTimeout(url, ua, 3, 5000);
-      if (r && r.ok) {
-        const data = await r.json();
-        const addr = data.address || {};
-        let province = addr.state || addr.region || addr.province || "";
-        let district =
-          addr.county || addr.district || addr.city_district || addr.city || "";
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${encodeURIComponent(
+      String(latNum)
+    )},${encodeURIComponent(String(lngNum))}&key=${googleKey}&language=vi`;
+    const r = await fetchWithTimeout(url, {}, 2, 6000);
+    if (r && r.ok) {
+      const data = await r.json();
+      if (
+        data.status === "OK" &&
+        Array.isArray(data.results) &&
+        data.results[0]
+      ) {
+        const comp = data.results[0].address_components || [];
+        const findComponent = (type) => {
+          const c = comp.find((item) =>
+            Array.isArray(item.types) ? item.types.includes(type) : false
+          );
+          return c ? c.long_name || c.short_name || "" : "";
+        };
+
+        const province =
+          findComponent("administrative_area_level_1") ||
+          findComponent("administrative_area_level_2") ||
+          findComponent("locality") ||
+          "";
+        const district =
+          findComponent("administrative_area_level_2") ||
+          findComponent("administrative_area_level_3") ||
+          findComponent("locality") ||
+          findComponent("sublocality") ||
+          "";
         const ward =
-          addr.suburb || addr.village || addr.town || addr.neighbourhood || "";
+          findComponent("administrative_area_level_3") ||
+          findComponent("administrative_area_level_4") ||
+          findComponent("sublocality") ||
+          findComponent("neighborhood") ||
+          "";
 
-        // Try to match with DB to get old names (before merger)
-        let oldProvince = "",
-          oldDistrict = "";
+        let oldProvince = "";
+        let oldDistrict = "";
         if (province) {
           const prov = await Province.findOne({
             name: { $regex: province, $options: "i" },
@@ -152,79 +176,14 @@ router.get("/reverse", async (req, res) => {
           ward,
           oldProvince: oldProvince || province,
           oldDistrict: oldDistrict || district,
-          detail: data.display_name || "",
-          raw: data,
-          source: "nominatim",
+          detail: data.results[0].formatted_address || "",
+          raw: data.results[0],
+          source: "google-maps",
         });
       }
-    } catch (e) {
-      console.warn("Nominatim failed:", e && e.message ? e.message : e);
+      console.warn("Google geocode unexpected response", data);
     }
 
-    // Fallback: geocode.maps.co (if key present)
-    try {
-      const mapsKey = process.env.GEOCODE_MAPS_CO_KEY;
-      if (mapsKey) {
-        const url = `https://geocode.maps.co/reverse?lat=${encodeURIComponent(
-          String(latNum)
-        )}&lon=${encodeURIComponent(String(lngNum))}&accept-language=vi`;
-        const r2 = await fetchWithTimeout(url, ua, 2, 5000);
-        if (r2 && r2.ok) {
-          const d2 = await r2.json();
-          const addr = d2.address || {};
-          let province =
-            addr.state || addr.region || addr.province || addr.county || "";
-          let district =
-            addr.county ||
-            addr.district ||
-            addr.city_district ||
-            addr.city ||
-            "";
-          const ward =
-            addr.suburb ||
-            addr.village ||
-            addr.town ||
-            addr.neighbourhood ||
-            "";
-
-          // Try to match with DB to get old names (before merger)
-          let oldProvince = "",
-            oldDistrict = "";
-          if (province) {
-            const prov = await Province.findOne({
-              name: { $regex: province, $options: "i" },
-            });
-            if (prov) {
-              oldProvince = prov.oldName || prov.name;
-              if (district) {
-                const dist = await District.findOne({
-                  province: prov._id,
-                  name: { $regex: district, $options: "i" },
-                });
-                if (dist) {
-                  oldDistrict = dist.oldName || dist.name;
-                }
-              }
-            }
-          }
-
-          return res.json({
-            province,
-            district,
-            ward,
-            oldProvince: oldProvince || province,
-            oldDistrict: oldDistrict || district,
-            detail: d2.display_name || "",
-            raw: d2,
-            source: "geocode.maps.co",
-          });
-        }
-      }
-    } catch (e) {
-      console.warn("geocode.maps.co failed:", e && e.message ? e.message : e);
-    }
-
-    // Final fallback: coordinate-only
     return res.json({
       province: "",
       district: "",

@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET || "secret";
@@ -11,7 +12,7 @@ export const extractTokenFromHeader = (req) => {
 };
 
 // ✅ Middleware xác thực token
-export const verifyToken = (req, res, next) => {
+export const verifyToken = async (req, res, next) => {
   const token = extractTokenFromHeader(req) || req.cookies?.token;
 
   if (!token) return res.status(401).json({ message: "Token required" });
@@ -28,14 +29,43 @@ export const verifyToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    const userId = decoded.userId || decoded.id || decoded._id;
+    if (!userId) {
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
     req.user = {
-      id: decoded.userId || decoded.id || decoded._id,
+      id: userId,
       email: decoded.email,
       role: decoded.role,
     };
+
+    try {
+      const freshUser = await User.findById(userId)
+        .select("role email name shipperApproved sellerApproved")
+        .lean();
+      if (freshUser) {
+        req.user.role = freshUser.role;
+        req.user.email = freshUser.email;
+        req.user.name = freshUser.name;
+        req.user.shipperApproved = freshUser.shipperApproved;
+        req.user.sellerApproved = freshUser.sellerApproved;
+      }
+    } catch (userErr) {
+      console.warn("verifyToken: failed to load user profile", userErr);
+    }
+
     next();
   } catch (err) {
     console.error("verifyToken error:", err);
+    // Handle expired token explicitly so client can react (e.g., prompt re-login / refresh)
+    if (err && err.name === "TokenExpiredError") {
+      const expiredAt = err.expiredAt || null;
+      // Optionally set a header so clients can detect expiration quickly
+      if (expiredAt)
+        res.setHeader("X-Token-Expired-At", expiredAt.toISOString());
+      return res.status(401).json({ message: "TokenExpired", expiredAt });
+    }
+
     return res.status(401).json({ message: "Invalid token" });
   }
 };

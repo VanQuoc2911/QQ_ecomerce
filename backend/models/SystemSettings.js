@@ -12,6 +12,8 @@ const SystemSettingSchema = new mongoose.Schema({
   autoApproveProducts: { type: Boolean, default: false },
   autoApproveSellers: { type: Boolean, default: false },
   smtp: { type: SmtpSchema, default: () => ({}) },
+  serviceFeePercent: { type: Number, default: 0 },
+  sellerServiceFeePercent: { type: Number, default: 0 },
 });
 
 const SystemSetting = mongoose.model("SystemSetting", SystemSettingSchema);

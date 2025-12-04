@@ -1,12 +1,18 @@
 // routes/adminRoutes.js
 import express from "express";
 import {
+  createAnnouncement,
+  listAnnouncements,
+} from "../controllers/announcementController.js";
+import {
   listPendingProducts,
   reviewProduct,
 } from "../controllers/productController.js";
 import { isAdmin, verifyToken } from "../middleware/authMiddleware.js";
+import Category from "../models/Category.js";
 import Product from "../models/Product.js";
 import SellerRequest from "../models/SellerRequest.js";
+import ShipperApplication from "../models/ShipperApplication.js";
 import Shop from "../models/Shop.js";
 import SystemSetting from "../models/SystemSettings.js";
 import User from "../models/User.js";
@@ -29,6 +35,85 @@ router.get("/seller-requests", verifyToken, isAdmin, async (req, res) => {
     res.json(requests);
   } catch (err) {
     console.error("listSellerRequests error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* ==========================
+✅ CATEGORY MANAGEMENT (ADMIN)
+Routes: GET /categories (list), POST /categories (create), PUT /categories/:id, DELETE /categories/:id
+Emits: 'categories:updated' to all connected clients after changes
+========================== */
+router.get("/categories", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const categories = await Category.find().sort({ id: 1 }).lean();
+    res.json(categories);
+  } catch (err) {
+    console.error("admin GET /categories error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.post("/categories", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    if (!name) return res.status(400).json({ message: "name required" });
+
+    // set id to next numeric if not provided
+    const max = await Category.findOne().sort({ id: -1 }).select("id");
+    const nextId = max && max.id ? max.id + 1 : 1;
+
+    const created = await Category.create({ id: nextId, name, description });
+
+    // emit update to clients
+    if (io) {
+      const fresh = await Category.find().sort({ id: 1 }).lean();
+      io.emit("categories:updated", fresh);
+    }
+
+    res.status(201).json(created);
+  } catch (err) {
+    console.error("admin POST /categories error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.put("/categories/:id", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const filter = isNaN(id) ? { _id: id } : { id: Number(id) };
+    const updated = await Category.findOneAndUpdate(filter, req.body, {
+      new: true,
+    });
+    if (!updated) return res.status(404).json({ message: "Not found" });
+
+    if (io) {
+      const fresh = await Category.find().sort({ id: 1 }).lean();
+      io.emit("categories:updated", fresh);
+    }
+
+    res.json(updated);
+  } catch (err) {
+    console.error("admin PUT /categories/:id error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.delete("/categories/:id", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const filter = isNaN(id) ? { _id: id } : { id: Number(id) };
+    const removed = await Category.findOneAndDelete(filter);
+    if (!removed) return res.status(404).json({ message: "Not found" });
+
+    if (io) {
+      const fresh = await Category.find().sort({ id: 1 }).lean();
+      io.emit("categories:updated", fresh);
+    }
+
+    res.json({ message: "Deleted" });
+  } catch (err) {
+    console.error("admin DELETE /categories/:id error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -119,6 +204,89 @@ router.post(
     }
   }
 );
+
+// list shipper requests (admin)
+router.get(
+  "/shipper-requests",
+  verifyToken,
+  isAdmin,
+  // delegate to shipper application controller
+  async (req, res) => {
+    try {
+      // return array to match /seller-requests format
+      const requests = await ShipperApplication.find()
+        .populate("userId", "name email phone")
+        .populate("review.reviewerId", "name email");
+      return res.json(requests);
+    } catch (err) {
+      console.error("listShipperRequests error:", err);
+      return res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+// get shipper application detail
+router.get("/shipper-requests/:id", verifyToken, isAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const application = await ShipperApplication.findById(id).populate(
+      "userId",
+      "name email phone"
+    );
+    if (!application) return res.status(404).json({ message: "Not found" });
+    return res.json(application);
+  } catch (err) {
+    console.error("getShipperRequestDetail error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+// review a shipper request
+router.post(
+  "/shipper-requests/:id/review",
+  verifyToken,
+  isAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { action, reviewNote } = req.body;
+      const decision = action === "approve" ? "approved" : "rejected";
+
+      const application = await ShipperApplication.findById(id);
+      if (!application) return res.status(404).json({ message: "Not found" });
+
+      application.status = decision;
+      application.review = {
+        reviewerId: req.user.id,
+        note: reviewNote || "",
+        decidedAt: new Date(),
+      };
+      application.history.push({
+        action: decision,
+        note:
+          reviewNote ||
+          (decision === "approved" ? "Duyệt hồ sơ" : "Từ chối hồ sơ"),
+        actorId: req.user.id,
+      });
+      await application.save();
+
+      // update user role if approved
+      const user = await User.findById(application.userId);
+      if (user) {
+        if (decision === "approved") {
+          user.role = "shipper";
+          user.shipperApproved = true;
+        }
+        await user.save();
+      }
+
+      return res.json({ message: "Reviewed", application });
+    } catch (err) {
+      console.error("reviewShipperRequest error:", err);
+      return res.status(500).json({ message: "Server error" });
+    }
+  }
+);
 /* ==========================
 ✅ GET SYSTEM SETTINGS
 ========================== */
@@ -142,15 +310,39 @@ router.post("/settings", verifyToken, isAdmin, async (req, res) => {
   try {
     let settings = await SystemSetting.findOne();
     if (!settings) {
-      settings = await SystemSetting.create(req.body);
-    } else {
-      settings.autoApproveProducts =
-        req.body.autoApproveProducts ?? settings.autoApproveProducts;
-      settings.autoApproveSellers =
-        req.body.autoApproveSellers ?? settings.autoApproveSellers;
-      settings.smtp = req.body.smtp ?? settings.smtp;
-      await settings.save();
+      settings = new SystemSetting();
     }
+
+    settings.autoApproveProducts =
+      req.body.autoApproveProducts ?? settings.autoApproveProducts;
+    settings.autoApproveSellers =
+      req.body.autoApproveSellers ?? settings.autoApproveSellers;
+    settings.smtp = req.body.smtp ?? settings.smtp;
+
+    if (req.body.serviceFeePercent !== undefined) {
+      const parsedPercent = Number(req.body.serviceFeePercent);
+      if (Number.isNaN(parsedPercent)) {
+        return res
+          .status(400)
+          .json({ message: "serviceFeePercent must be a number" });
+      }
+      settings.serviceFeePercent = Math.min(Math.max(parsedPercent, 0), 100);
+    }
+
+    if (req.body.sellerServiceFeePercent !== undefined) {
+      const parsedPercent = Number(req.body.sellerServiceFeePercent);
+      if (Number.isNaN(parsedPercent)) {
+        return res
+          .status(400)
+          .json({ message: "sellerServiceFeePercent must be a number" });
+      }
+      settings.sellerServiceFeePercent = Math.min(
+        Math.max(parsedPercent, 0),
+        100
+      );
+    }
+
+    await settings.save();
 
     // Nếu bật autoApproveProducts, duyệt luôn sản phẩm đang pending
     if (settings.autoApproveProducts) {
@@ -254,5 +446,8 @@ router.post("/settings", verifyToken, isAdmin, async (req, res) => {
     res.status(500).json({ message: "Failed to save settings" });
   }
 });
+
+router.get("/announcements", verifyToken, isAdmin, listAnnouncements);
+router.post("/announcements", verifyToken, isAdmin, createAnnouncement);
 
 export default router;

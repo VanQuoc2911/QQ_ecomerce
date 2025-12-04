@@ -362,7 +362,7 @@ export default function BankingPaymentPage() {
               }}
             >
               <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
-                ⏳ Chờ xác nhận thanh toán
+                ⏳ Chờ thanh toán
               </Typography>
               <Typography variant="body2" sx={{ mb: 1 }}>
                 Bạn đã hoàn thành chuyển khoản. Vui lòng chờ seller xác nhận đã

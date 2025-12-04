@@ -18,8 +18,10 @@ import Grid from "@mui/material/GridLegacy";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
+import { io } from "socket.io-client";
 import { orderService, type OrderDetailResponse, type OrderProduct } from "../../api/orderService";
 import { paymentService } from "../../api/paymentService";
+import { STATUS_CONFIG } from "../../utils/orderStatus";
 
 // Countdown Timer Component
 function CountdownTimer({ remainingMs, isExpired }: { remainingMs: number | null; isExpired: boolean }) {
@@ -85,15 +87,7 @@ function CountdownTimer({ remainingMs, isExpired }: { remainingMs: number | null
 
 // Status badge component
 function StatusBadge({ status }: { status?: string }) {
-  const statusConfig: Record<string, { color: string; bgcolor: string; label: string }> = {
-    pending: { color: "#f59e0b", bgcolor: "rgba(245, 158, 11, 0.1)", label: "⏳ Chờ thanh toán" },
-    payment_pending: { color: "#ff9800", bgcolor: "rgba(255, 152, 0, 0.1)", label: "📦 Chờ xử lý" },
-    processing: { color: "#3b82f6", bgcolor: "rgba(59, 130, 246, 0.1)", label: "📦 Đang xử lý" },
-    completed: { color: "#22c55e", bgcolor: "rgba(34, 197, 94, 0.1)", label: "✓ Hoàn thành" },
-    cancelled: { color: "#ef4444", bgcolor: "rgba(239, 68, 68, 0.1)", label: "✗ Đã hủy" },
-  };
-
-  const config = statusConfig[status || ""] || statusConfig.pending;
+  const config = STATUS_CONFIG[status || ""] || STATUS_CONFIG.payment_pending;
 
   return (
     <Chip
@@ -102,7 +96,7 @@ function StatusBadge({ status }: { status?: string }) {
         fontWeight: 600,
         fontSize: "0.85rem",
         color: config.color,
-        bgcolor: config.bgcolor,
+        bgcolor: config.bgColor,
         border: `1px solid ${config.color}`,
       }}
     />
@@ -142,13 +136,110 @@ export default function OrderHistory() {
       setLoading(true);
       try {
         const data = await orderService.getUserOrders();
-        setOrders(data || []);
+        // ensure payment deadline fields exist for payment_pending orders (7 hours rule)
+        const enriched = (data || []).map((o) => {
+          try {
+            const out = { ...o } as Partial<OrderDetailResponse>;
+            if ((out.status === "payment_pending") && !out.paymentDeadline && (out.remainingTime === undefined || out.remainingTime === null)) {
+              const createdTs = out.createdAt ? Date.parse(out.createdAt) : NaN;
+              if (!Number.isNaN(createdTs)) {
+                const deadline = createdTs + 7 * 3600 * 1000; // 7 hours
+                const remaining = deadline - Date.now();
+                out.paymentDeadline = new Date(deadline).toISOString();
+                out.remainingTime = remaining > 0 ? remaining : 0;
+                out.isExpired = remaining <= 0;
+              }
+            } else if (out.paymentDeadline) {
+              const remaining = Date.parse(out.paymentDeadline) - Date.now();
+              out.remainingTime = remaining > 0 ? remaining : 0;
+              out.isExpired = remaining <= 0;
+            } else if (out.remainingTime !== undefined) {
+              out.isExpired = (out.remainingTime || 0) <= 0;
+            }
+            return out as OrderDetailResponse;
+          } catch {
+            return o;
+          }
+        });
+        setOrders(enriched);
       } catch (err) {
         console.error(err);
       } finally {
         setLoading(false);
       }
     })();
+  }, []);
+
+  // Periodically check for expired payment_pending orders and request cancelation
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      try {
+        const toCancel = orders.filter((o) => isAwaitingPayment(o.status) && ((o.remainingTime ?? 0) <= 0));
+        if (toCancel.length === 0) return;
+        for (const o of toCancel) {
+          try {
+            await orderService.cancelOrder(o._id);
+          } catch {
+            // ignore per-order failures
+          }
+        }
+        // refresh list after cancel attempts
+        const data = await orderService.getUserOrders();
+        const enriched = (data || []).map((o) => {
+          try {
+            const out = { ...o } as Partial<OrderDetailResponse>;
+            if (isAwaitingPayment(out.status) && !out.paymentDeadline && (out.remainingTime === undefined || out.remainingTime === null)) {
+              const createdTs = out.createdAt ? Date.parse(out.createdAt) : NaN;
+              if (!Number.isNaN(createdTs)) {
+                const deadline = createdTs + 7 * 3600 * 1000; // 7 hours
+                const remaining = deadline - Date.now();
+                out.paymentDeadline = new Date(deadline).toISOString();
+                out.remainingTime = remaining > 0 ? remaining : 0;
+                out.isExpired = remaining <= 0;
+              }
+            } else if (out.paymentDeadline) {
+              const remaining = Date.parse(out.paymentDeadline) - Date.now();
+              out.remainingTime = remaining > 0 ? remaining : 0;
+              out.isExpired = remaining <= 0;
+            } else if (out.remainingTime !== undefined) {
+              out.isExpired = (out.remainingTime || 0) <= 0;
+            }
+            return out as OrderDetailResponse;
+          } catch {
+            return o;
+          }
+        });
+        setOrders(enriched);
+      } catch {
+        // ignore
+      }
+    }, 60 * 1000); // check every minute
+
+    return () => clearInterval(timer);
+  }, [orders]);
+
+  // Real-time updates: refresh orders when backend emits order events
+  useEffect(() => {
+    const socket = io();
+    socket.on("connect", () => console.log("OrderHistory socket connected:", socket.id));
+
+    const refresh = async () => {
+      try {
+        const data = await orderService.getUserOrders();
+        setOrders(data || []);
+      } catch {
+        // ignore
+      }
+    };
+
+    socket.on("order:statusUpdated", refresh);
+    socket.on("order:paymentPending", refresh);
+    socket.on("order:paymentConfirmed", refresh);
+    socket.on("order:created", refresh);
+
+    return () => {
+      socket.disconnect();
+    };
   }, []);
 
   // Apply filters whenever orders, searchId, or filterStatus changes
@@ -245,19 +336,19 @@ export default function OrderHistory() {
                 >
                   Tất cả
                 </Button>
-                {["pending", "payment_pending", "processing", "completed", "cancelled"].map((status) => (
+                {["payment_pending", "pending", "awaiting_shipment", "completed", "cancelled"].map((status) => (
                   <Button
                     key={status}
                     size="small"
                     variant={filterStatus === status ? "contained" : "outlined"}
                     onClick={() => setFilterStatus(status)}
                   >
-                    {status === "pending"
-                      ? "Chờ TT"
-                      : status === "payment_pending"
-                        ? "Chờ xử lý"
-                        : status === "processing"
-                          ? "Xử lý"
+                    {status === "payment_pending"
+                      ? "Chờ thanh toán"
+                      : status === "pending"
+                        ? "Đang xử lý"
+                        : status === "awaiting_shipment"
+                          ? "Chờ giao"
                           : status === "completed"
                             ? "Hoàn thành"
                             : "Hủy"}
@@ -369,13 +460,13 @@ export default function OrderHistory() {
                   ) || order.totalAmount || 0;
 
 
-                  // Đơn đã thanh toán thành công hoặc COD thì không hiện nút thanh toán lại/đổi phương thức
-                  const isPaid = order.status === "processing" || order.status === "completed";
+                  // Đơn đã thanh toán thành công/đang xử lý hoặc COD thì không hiện nút thanh toán lại/đổi phương thức
+                  const isPaid = order.status === "pending" || order.status === "processing" || order.status === "completed";
                   const isCOD = order.paymentMethod === "cod";
                   // Chỉ hiện nút khi đơn chưa thanh toán thành công, không phải COD, còn hạn thanh toán
                   const canPay =
                     !isPaid && !isCOD &&
-                    (order.status === "pending" || order.status === "payment_pending") &&
+                    order.status === "payment_pending" &&
                     !!order.remainingTime && order.remainingTime > 0 && !order.isExpired;
 
                   return (
@@ -404,7 +495,7 @@ export default function OrderHistory() {
                           <Typography sx={{ fontSize: "0.85rem", color: "#ef4444", fontWeight: 600 }}>
                             ❌ Hết hạn thanh toán
                           </Typography>
-                        ) : (order.status === "pending" || order.status === "payment_pending") && order.remainingTime && order.paymentMethod !== "cod" ? (
+                        ) : order.status === "payment_pending" && order.remainingTime && order.paymentMethod !== "cod" ? (
                           <CountdownTimer remainingMs={order.remainingTime} isExpired={order.isExpired || false} />
                         ) : (
                           <Typography sx={{ fontSize: "0.85rem", color: "text.secondary" }}>--</Typography>
@@ -458,3 +549,13 @@ export default function OrderHistory() {
     </Box>
   );
 }
+function isAwaitingPayment(status: string | undefined) {
+  if (!status) return false;
+  const s = status.trim().toLowerCase();
+  // primary status used in this project
+  if (s === "payment_pending") return true;
+  // accept common synonyms just in case backend uses different naming
+  if (s === "awaiting_payment" || s === "pending_payment") return true;
+  return false;
+}
+

@@ -4,23 +4,25 @@ import SaveIcon from "@mui/icons-material/Save";
 import SecurityIcon from "@mui/icons-material/Security";
 import SettingsIcon from "@mui/icons-material/Settings";
 import {
-  Alert,
-  alpha,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  Container,
-  FormControlLabel,
-  Snackbar,
-  Switch,
-  TextField,
-  Typography,
+    Alert,
+    alpha,
+    Box,
+    Button,
+    Card,
+    CardContent,
+    Chip,
+    Container,
+    FormControlLabel,
+    InputAdornment,
+    Snackbar,
+    Switch,
+    TextField,
+    Typography
 } from "@mui/material";
 import Grid from "@mui/material/Grid";
+import MenuItem from "@mui/material/MenuItem";
 import axios, { type AxiosResponse } from "axios";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import api from "../../api/axios";
 
 interface SmtpSettings {
@@ -33,7 +35,33 @@ interface SystemSettings {
   autoApproveProducts: boolean;
   autoApproveSellers: boolean;
   smtp: SmtpSettings;
+  serviceFeePercent?: number;
+  sellerServiceFeePercent?: number;
 }
+
+type AnnouncementAudience = "all" | "users" | "sellers" | "shippers";
+
+interface AnnouncementHistory {
+  _id: string;
+  title: string;
+  message: string;
+  audience: AnnouncementAudience;
+  createdAt: string;
+  createdBy?: {
+    name?: string;
+    email?: string;
+  };
+  metadata?: {
+    recipientCount?: number;
+  };
+}
+
+const AUDIENCE_OPTIONS: Array<{ value: AnnouncementAudience; label: string }> = [
+  { value: "all", label: "Toàn hệ thống" },
+  { value: "users", label: "Toàn bộ user" },
+  { value: "sellers", label: "Toàn bộ seller" },
+  { value: "shippers", label: "Toàn bộ shipper" },
+];
 
 const SettingsPage: React.FC = () => {
   const [autoApproveProducts, setAutoApproveProducts] = useState<boolean>(false);
@@ -41,9 +69,29 @@ const SettingsPage: React.FC = () => {
   const [email, setEmail] = useState<string>("");
   const [smtpServer, setSmtpServer] = useState<string>("");
   const [smtpPort, setSmtpPort] = useState<string>("587");
-  const [success, setSuccess] = useState<boolean>(false);
+  const [serviceFeePercent, setServiceFeePercent] = useState<string>("0");
+  const [sellerServiceFeePercent, setSellerServiceFeePercent] = useState<string>("0");
+  const [successMessage, setSuccessMessage] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
+  const [announcementTitle, setAnnouncementTitle] = useState<string>("");
+  const [announcementMessage, setAnnouncementMessage] = useState<string>("");
+  const [announcementAudience, setAnnouncementAudience] =
+    useState<AnnouncementAudience>("all");
+  const [announcementHistory, setAnnouncementHistory] = useState<AnnouncementHistory[]>([]);
+  const [announcementLoading, setAnnouncementLoading] = useState<boolean>(false);
+
+  const loadAnnouncements = useCallback(async () => {
+    try {
+      const res: AxiosResponse<AnnouncementHistory[]> = await api.get(
+        "/api/admin/announcements",
+        { params: { limit: 10 } }
+      );
+      setAnnouncementHistory(res.data ?? []);
+    } catch (err) {
+      console.error("Failed to load announcements", err);
+    }
+  }, []);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -55,6 +103,8 @@ const SettingsPage: React.FC = () => {
         setEmail(data.smtp?.email ?? "");
         setSmtpServer(data.smtp?.smtpServer ?? "");
         setSmtpPort(data.smtp?.smtpPort?.toString() ?? "587");
+        setServiceFeePercent((data.serviceFeePercent ?? 0).toString());
+        setSellerServiceFeePercent((data.sellerServiceFeePercent ?? 0).toString());
       } catch (err: unknown) {
         if (err instanceof Error) {
           console.error(err.message);
@@ -62,12 +112,22 @@ const SettingsPage: React.FC = () => {
       }
     };
     fetchSettings();
-  }, []);
+    loadAnnouncements();
+  }, [loadAnnouncements]);
 
   const handleSave = async () => {
     setLoading(true);
     setError("");
     try {
+      const parsedServiceFee = Number(serviceFeePercent);
+      const normalizedServiceFee = Number.isNaN(parsedServiceFee)
+        ? 0
+        : Math.min(Math.max(parsedServiceFee, 0), 100);
+      const parsedSellerFee = Number(sellerServiceFeePercent);
+      const normalizedSellerFee = Number.isNaN(parsedSellerFee)
+        ? 0
+        : Math.min(Math.max(parsedSellerFee, 0), 100);
+
       const payload: Partial<SystemSettings> = {
         autoApproveProducts,
         autoApproveSellers,
@@ -76,12 +136,13 @@ const SettingsPage: React.FC = () => {
           smtpServer,
           smtpPort: Number(smtpPort),
         },
+        serviceFeePercent: normalizedServiceFee,
+        sellerServiceFeePercent: normalizedSellerFee,
       };
 
       await api.post("/api/admin/settings", payload);
 
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 3000);
+      setSuccessMessage("Settings saved successfully!");
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
         setError(err.response?.data?.message ?? "Failed to save settings");
@@ -92,6 +153,38 @@ const SettingsPage: React.FC = () => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSendAnnouncement = async () => {
+    if (!announcementTitle.trim() || !announcementMessage.trim()) {
+      setError("Vui lòng nhập tiêu đề và nội dung thông báo");
+      return;
+    }
+
+    setAnnouncementLoading(true);
+    setError("");
+    try {
+      await api.post("/api/admin/announcements", {
+        title: announcementTitle.trim(),
+        message: announcementMessage.trim(),
+        audience: announcementAudience,
+      });
+
+      setSuccessMessage("Đã gửi thông báo đến đối tượng đã chọn");
+      setAnnouncementTitle("");
+      setAnnouncementMessage("");
+      await loadAnnouncements();
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.message ?? "Không thể gửi thông báo");
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Đã xảy ra lỗi không xác định");
+      }
+    } finally {
+      setAnnouncementLoading(false);
     }
   };
 
@@ -141,10 +234,10 @@ const SettingsPage: React.FC = () => {
 
         {/* Snackbars */}
         <Snackbar 
-          open={success} 
+          open={!!successMessage} 
           autoHideDuration={3000}
           anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-          onClose={() => setSuccess(false)}
+          onClose={() => setSuccessMessage("")}
         >
           <Alert 
             severity="success" 
@@ -155,7 +248,7 @@ const SettingsPage: React.FC = () => {
               fontWeight: 600,
             }}
           >
-            Settings saved successfully!
+            {successMessage || "Success"}
           </Alert>
         </Snackbar>
 
@@ -272,6 +365,65 @@ const SettingsPage: React.FC = () => {
                     p: 2,
                     borderRadius: 2,
                     bgcolor: alpha("#0288d1", 0.04),
+                    mt: 2,
+                  }}
+                >
+                  <Typography variant="subtitle2" fontWeight={600} color="text.secondary" mb={1}>
+                    Phí dịch vụ shipper (%)
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    value={serviceFeePercent}
+                    onChange={(e) => setServiceFeePercent(e.target.value)}
+                    inputProps={{ min: 0, max: 100, step: 0.5 }}
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                    }}
+                    helperText="Trừ trên phí ship để trả cho hệ thống/shipper"
+                    sx={{
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 2,
+                      },
+                    }}
+                  />
+                </Box>
+
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: alpha("#0288d1", 0.04),
+                    mt: 2,
+                  }}
+                >
+                  <Typography variant="subtitle2" fontWeight={600} color="text.secondary" mb={1}>
+                    Phí dịch vụ người bán (%)
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    type="number"
+                    value={sellerServiceFeePercent}
+                    onChange={(e) => setSellerServiceFeePercent(e.target.value)}
+                    inputProps={{ min: 0, max: 100, step: 0.5 }}
+                    InputProps={{
+                      endAdornment: <InputAdornment position="end">%</InputAdornment>,
+                    }}
+                    helperText="Trừ trên giá sản phẩm/đơn để thu phí nền tảng"
+                    sx={{
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 2,
+                      },
+                    }}
+                  />
+                </Box>
+
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: alpha("#0288d1", 0.04),
+                    mt: 2,
                   }}
                 >
                   <FormControlLabel
@@ -425,6 +577,172 @@ const SettingsPage: React.FC = () => {
                       },
                     }}
                   />
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          {/* Announcement Broadcast Card */}
+          <Grid size={{ xs: 12 }}>
+            <Card
+              elevation={0}
+              sx={{
+                borderRadius: 4,
+                background: "white",
+                border: "1px solid",
+                borderColor: alpha("#0288d1", 0.1),
+                mt: 1,
+              }}
+            >
+              <CardContent sx={{ p: 4, display: "flex", flexDirection: "column", gap: 3 }}>
+                <Box display="flex" alignItems="center" gap={2}>
+                  <Box
+                    sx={{
+                      width: 50,
+                      height: 50,
+                      borderRadius: 2,
+                      background: `linear-gradient(135deg, ${alpha("#ff9800", 0.2)}, ${alpha("#ff9800", 0.05)})`,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <EmailIcon sx={{ fontSize: 28, color: "#fb8c00" }} />
+                  </Box>
+                  <Box>
+                    <Typography variant="h6" fontWeight={700} color="#fb8c00">
+                      Gửi thông báo toàn hệ thống
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Gửi nhanh đến toàn bộ user, seller hoặc shipper
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <TextField
+                      fullWidth
+                      label="Tiêu đề thông báo"
+                      value={announcementTitle}
+                      onChange={(e) => setAnnouncementTitle(e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: 2,
+                        },
+                      }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 3 }}>
+                    <TextField
+                      select
+                      fullWidth
+                      label="Đối tượng nhận"
+                      value={announcementAudience}
+                      onChange={(e) =>
+                        setAnnouncementAudience(e.target.value as AnnouncementAudience)
+                      }
+                      InputLabelProps={{ shrink: true }}
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: 2,
+                        },
+                      }}
+                    >
+                      {AUDIENCE_OPTIONS.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>
+                          {option.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 3 }}>
+                    <Button
+                      variant="contained"
+                      fullWidth
+                      size="large"
+                      onClick={handleSendAnnouncement}
+                      disabled={announcementLoading}
+                      sx={{
+                        height: "100%",
+                        borderRadius: 3,
+                        fontWeight: 700,
+                        textTransform: "none",
+                        background: "linear-gradient(135deg, #fb8c00 0%, #ef6c00 100%)",
+                        "&:hover": {
+                          background: "linear-gradient(135deg, #f57c00 0%, #e65100 100%)",
+                        },
+                        "&:disabled": {
+                          background: alpha("#fb8c00", 0.3),
+                        },
+                      }}
+                    >
+                      {announcementLoading ? "Đang gửi..." : "Gửi thông báo"}
+                    </Button>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <TextField
+                      fullWidth
+                      multiline
+                      minRows={4}
+                      label="Nội dung thông báo"
+                      value={announcementMessage}
+                      onChange={(e) => setAnnouncementMessage(e.target.value)}
+                      InputLabelProps={{ shrink: true }}
+                      sx={{
+                        "& .MuiOutlinedInput-root": {
+                          borderRadius: 2,
+                        },
+                      }}
+                    />
+                  </Grid>
+                </Grid>
+
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700} mb={2}>
+                    Lịch sử thông báo gần đây
+                  </Typography>
+                  {announcementHistory.length === 0 ? (
+                    <Typography color="text.secondary" variant="body2">
+                      Chưa có thông báo nào được gửi.
+                    </Typography>
+                  ) : (
+                    <Box display="flex" flexDirection="column" gap={2}>
+                      {announcementHistory.map((item) => {
+                        const audienceLabel =
+                          AUDIENCE_OPTIONS.find((opt) => opt.value === item.audience)?.label ||
+                          "Không xác định";
+                        return (
+                          <Box
+                            key={item._id}
+                            sx={{
+                              p: 2,
+                              borderRadius: 2,
+                              border: "1px solid",
+                              borderColor: alpha("#0288d1", 0.15),
+                              backgroundColor: alpha("#0288d1", 0.02),
+                            }}
+                          >
+                            <Box display="flex" justifyContent="space-between" flexWrap="wrap" gap={1}>
+                              <Box display="flex" alignItems="center" gap={1}>
+                                <Typography fontWeight={700}>{item.title}</Typography>
+                                <Chip label={audienceLabel} size="small" color="primary" />
+                              </Box>
+                              <Typography variant="caption" color="text.secondary">
+                                {new Date(item.createdAt).toLocaleString()}
+                              </Typography>
+                            </Box>
+                            <Typography variant="body2" color="text.secondary" mt={1}>
+                              {item.message}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {`Số người nhận: ${item.metadata?.recipientCount ?? "-"}`}
+                            </Typography>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  )}
                 </Box>
               </CardContent>
             </Card>

@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:user": "cross-env VITE_USER_ONLY=true vite --port 5173",
+    "dev:seller": "cross-env VITE_SELLER_ONLY=true vite --port 5175",
+    "dev:admin": "cross-env VITE_ADMIN_ONLY=true vite --port 5174",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -47,6 +50,7 @@
     "@typescript-eslint/parser": "^8.46.1",
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^7.0.3",
     "eslint": "^9.38.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import { orderService, type OrderDetailResponse } from "../../api/orderService";
+import { STATUS_CONFIG } from "../../utils/orderStatus";
 
 // Helper component to display countdown timer
 function CountdownTimer({ remainingMs, isExpired }: { remainingMs: number | null; isExpired: boolean }) {
@@ -54,15 +55,8 @@ function CountdownTimer({ remainingMs, isExpired }: { remainingMs: number | null
 
 // Helper to get status label and color
 function getStatusInfo(status?: string) {
-  const statusMap: Record<string, { label: string; color: string; bgColor: string }> = {
-    pending: { label: "⏳ Chờ thanh toán", color: "#f59e0b", bgColor: "rgba(245, 158, 11, 0.1)" },
-    payment_pending: { label: "⏳ Chờ xác nhận thanh toán", color: "#f59e0b", bgColor: "rgba(245, 158, 11, 0.1)" },
-    processing: { label: "📦 Đang xử lý", color: "#3b82f6", bgColor: "rgba(59, 130, 246, 0.1)" },
-    shipping: { label: "🚚 Đang giao", color: "#8b5cf6", bgColor: "rgba(139, 92, 246, 0.1)" },
-    completed: { label: "✅ Hoàn thành", color: "#22c55e", bgColor: "rgba(34, 197, 94, 0.1)" },
-    cancelled: { label: "❌ Hủy", color: "#ef4444", bgColor: "rgba(239, 68, 68, 0.1)" },
-  };
-  return statusMap[status || "pending"] || statusMap.pending;
+  const cfg = STATUS_CONFIG[status || ""] || STATUS_CONFIG.pending;
+  return { label: cfg.label, color: cfg.color, bgColor: cfg.bgColor };
 }
 
 export default function Orders() {

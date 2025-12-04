@@ -15,6 +15,8 @@ dotenv.config();
 // JWT
 const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
 const ACCESS_EXPIRES = process.env.JWT_EXPIRES || "1d";
+const REFRESH_SECRET = process.env.REFRESH_SECRET || "your-refresh-secret";
+const REFRESH_EXPIRES = process.env.REFRESH_EXPIRES || "7d";
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
 /* ========================================================================
@@ -49,6 +51,13 @@ const register = async (req, res) => {
       { userId: user._id.toString(), email: user.email, role: user.role },
       JWT_SECRET,
       { expiresIn: ACCESS_EXPIRES }
+    );
+
+    // create refresh token
+    const refreshToken = jwt.sign(
+      { userId: user._id.toString() },
+      REFRESH_SECRET,
+      { expiresIn: REFRESH_EXPIRES }
     );
 
     return res.status(201).json({
@@ -136,6 +145,7 @@ const login = async (req, res) => {
       success: true,
       message: "Đăng nhập thành công",
       token,
+      refreshToken,
       user: {
         id: user._id,
         name: user.name,
@@ -195,10 +205,17 @@ const googleLogin = async (req, res) => {
       { expiresIn: ACCESS_EXPIRES }
     );
 
+    const refreshToken = jwt.sign(
+      { userId: user._id.toString() },
+      REFRESH_SECRET,
+      { expiresIn: REFRESH_EXPIRES }
+    );
+
     return res.status(200).json({
       success: true,
       message: "Login Google thành công",
       token,
+      refreshToken,
       user: {
         id: user._id,
         name: user.name,
@@ -227,11 +244,19 @@ const refreshToken = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Missing refresh token" });
 
-    jwt.verify(refreshToken, JWT_SECRET, async (err, decoded) => {
+    jwt.verify(refreshToken, REFRESH_SECRET, async (err, decoded) => {
       if (err)
         return res
           .status(403)
           .json({ success: false, message: "Invalid refresh token" });
+
+      // debug: log refresh attempts (do not log tokens in production)
+      try {
+        console.log(
+          "[Auth] refreshToken request for userId=",
+          decoded && decoded.userId
+        );
+      } catch {}
 
       const user = await User.findById(decoded.userId);
       if (!user)
@@ -242,7 +267,7 @@ const refreshToken = async (req, res) => {
       const newAccessToken = jwt.sign(
         { userId: user._id.toString(), email: user.email, role: user.role },
         JWT_SECRET,
-        { expiresIn: "1h" }
+        { expiresIn: ACCESS_EXPIRES }
       );
 
       return res.json({ success: true, accessToken: newAccessToken });

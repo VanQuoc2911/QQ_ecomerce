@@ -28,7 +28,7 @@ import {
   Typography
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import { useNavigate } from "react-router-dom";
 import { sellerService, type ShopInfo } from "../../api/sellerService";
@@ -98,6 +98,15 @@ export default function SellerShopInfo() {
   const [tempAddressText, setTempAddressText] = useState("");
   const [tempAddressLoading, setTempAddressLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const googleMapsKey =
+    import.meta.env.VITE_GOOGLE_MAPS_KEY ||
+    import.meta.env.REACT_APP_GOOGLE_MAPS_KEY ||
+    "";
+
+  const buildGoogleTileUrl = useMemo(() => {
+    const suffix = googleMapsKey ? `&key=${googleMapsKey}` : "";
+    return (style: string = "m") => `https://mt1.google.com/vt/lyrs=${style}&x={x}&y={y}&z={z}${suffix}`;
+  }, [googleMapsKey]);
 
   useEffect(() => {
     sellerService
@@ -1095,7 +1104,7 @@ export default function SellerShopInfo() {
                 zoom={13}
                 style={{ height: '100%', width: '100%' }}
               >
-                <TileLayer url={`https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=${import.meta.env.VITE_MAPTILER_KEY || 'GHZKttyI4ARcAaCe0j5d'}`} />
+                <TileLayer url={buildGoogleTileUrl("m")} />
                 <LocationMarker />
               </MapContainer>
             )}

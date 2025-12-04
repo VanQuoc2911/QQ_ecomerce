@@ -1,9 +1,15 @@
-import AddIcon from '@mui/icons-material/Add';
-import DeleteIcon from '@mui/icons-material/Delete';
-import EditIcon from '@mui/icons-material/Edit';
-import InventoryIcon from '@mui/icons-material/Inventory';
-import StorefrontIcon from '@mui/icons-material/Storefront';
-import VisibilityIcon from '@mui/icons-material/Visibility';
+import AddIcon from "@mui/icons-material/Add";
+import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
+import FilterAltRoundedIcon from "@mui/icons-material/FilterAltRounded";
+import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
+import LocalOfferRoundedIcon from "@mui/icons-material/LocalOfferRounded";
+import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import StorefrontIcon from "@mui/icons-material/Storefront";
+import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
+import VisibilityIcon from "@mui/icons-material/Visibility";
+import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import {
   Box,
   Button,
@@ -15,13 +21,15 @@ import {
   CircularProgress,
   Container,
   IconButton,
+  InputAdornment,
   Paper,
   Stack,
+  TextField,
   Tooltip,
   Typography,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { productService, type ApiProduct } from "../../api/productService";
 
@@ -30,6 +38,8 @@ type ProductWithCategory = ApiProduct & { category?: string };
 export default function SellerProducts() {
   const [products, setProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -39,8 +49,8 @@ export default function SellerProducts() {
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const products = await productService.getMyProducts();
-      setProducts(products);
+      const items = await productService.getMyProducts();
+      setProducts(items);
     } catch (err) {
       console.error(err);
     } finally {
@@ -61,420 +71,388 @@ export default function SellerProducts() {
     }
   };
 
+  const currencyFormatter = useMemo(
+    () => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }),
+    []
+  );
+
+  const stats = useMemo(() => {
+    const totalInventory = products.reduce((sum, p) => sum + (p.stock || 0), 0);
+    const totalValue = products.reduce((sum, p) => sum + (p.price || 0) * (p.stock || 0), 0);
+    const activeCount = products.filter((p) => p.status === "active").length;
+    const lowStock = products.filter((p) => (p.stock || 0) < 10).length;
+    return { totalInventory, totalValue, activeCount, lowStock };
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    return products.filter((p) => {
+      const matchStatus =
+        statusFilter === "all" || (statusFilter === "active" ? p.status === "active" : p.status !== "active");
+      const matchSearch = !searchTerm.length
+        ? true
+        : p.title?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false;
+      return matchStatus && matchSearch;
+    });
+  }, [products, searchTerm, statusFilter]);
+
   if (loading) {
     return (
       <Box
         sx={{
           minHeight: "100vh",
           display: "flex",
-          justifyContent: "center",
           alignItems: "center",
-          background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
+          justifyContent: "center",
+          background: "radial-gradient(circle at top, #0f172a, #020617)",
         }}
       >
-        <Box sx={{ textAlign: "center" }}>
-          <CircularProgress size={60} sx={{ color: "#1976d2", mb: 2 }} />
-          <Typography variant="h6" color="text.secondary">
-            Đang tải sản phẩm...
+        <Stack spacing={2} textAlign="center">
+          <CircularProgress size={64} sx={{ color: "#38bdf8" }} />
+          <Typography variant="body1" color="#bfdbfe">
+            Đang tải sản phẩm, vui lòng đợi...
           </Typography>
-        </Box>
+        </Stack>
       </Box>
     );
   }
 
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)",
-        py: { xs: 3, md: 5 },
-      }}
-    >
+    <Box sx={{ minHeight: "100vh", background: "linear-gradient(180deg, #ffffff 0%, #e0f2ff 80%)", py: 4 }}>
       <Container maxWidth="xl">
-        {/* Header Section */}
-        <Paper
-          elevation={3}
-          sx={{
-            p: 3,
-            mb: 4,
-            borderRadius: 3,
-            background: "linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)",
-            color: "white",
-          }}
-        >
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: 2,
-            }}
-          >
-            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-              <StorefrontIcon sx={{ fontSize: 40 }} />
-              <Box>
-                <Typography variant="h4" fontWeight={700}>
-                  Quản Lý Sản Phẩm
-                </Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9, mt: 0.5 }}>
-                  Tổng số: {products.length} sản phẩm
-                </Typography>
-              </Box>
-            </Box>
-            <Button
-              component={Link}
-              to="/seller/add"
-              variant="contained"
-              size="large"
-              startIcon={<AddIcon />}
-              sx={{
-                background: "white",
-                color: "#1976d2",
-                fontWeight: 700,
-                px: 3,
-                py: 1.5,
-                "&:hover": {
-                  background: "#f5f5f5",
-                  transform: "translateY(-2px)",
-                  boxShadow: 4,
-                },
-                transition: "all 0.3s",
-              }}
-            >
-              Thêm Sản Phẩm Mới
-            </Button>
-          </Box>
-        </Paper>
-
-        {/* Stats Cards */}
-        <Grid container spacing={3} sx={{ mb: 4 }}>
-          <Grid item xs={12} sm={6} md={3}>
-            <Card
-              elevation={2}
-              sx={{
-                p: 2.5,
-                borderRadius: 3,
-                background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-                color: "white",
-                transition: "all 0.3s",
-                "&:hover": {
-                  transform: "translateY(-4px)",
-                  boxShadow: 6,
-                },
-              }}
-            >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <InventoryIcon sx={{ fontSize: 40, opacity: 0.9 }} />
-                <Box>
-                  <Typography variant="h4" fontWeight={700}>
-                    {products.length}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Tổng sản phẩm
-                  </Typography>
-                </Box>
-              </Box>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Card
-              elevation={2}
-              sx={{
-                p: 2.5,
-                borderRadius: 3,
-                background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
-                color: "white",
-                transition: "all 0.3s",
-                "&:hover": {
-                  transform: "translateY(-4px)",
-                  boxShadow: 6,
-                },
-              }}
-            >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <VisibilityIcon sx={{ fontSize: 40, opacity: 0.9 }} />
-                <Box>
-                  <Typography variant="h4" fontWeight={700}>
-                    {products.filter(p => p.status === 'active').length}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Đang hoạt động
-                  </Typography>
-                </Box>
-              </Box>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Card
-              elevation={2}
-              sx={{
-                p: 2.5,
-                borderRadius: 3,
-                background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)",
-                color: "white",
-                transition: "all 0.3s",
-                "&:hover": {
-                  transform: "translateY(-4px)",
-                  boxShadow: 6,
-                },
-              }}
-            >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <StorefrontIcon sx={{ fontSize: 40, opacity: 0.9 }} />
-                <Box>
-                  <Typography variant="h4" fontWeight={700}>
-                    {products.reduce((sum, p) => sum + (p.stock || 0), 0)}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Tồn kho
-                  </Typography>
-                </Box>
-              </Box>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={3}>
-            <Card
-              elevation={2}
-              sx={{
-                p: 2.5,
-                borderRadius: 3,
-                background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)",
-                color: "white",
-                transition: "all 0.3s",
-                "&:hover": {
-                  transform: "translateY(-4px)",
-                  boxShadow: 6,
-                },
-              }}
-            >
-              <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <Box sx={{ fontSize: 40 }}>💰</Box>
-                <Box>
-                  <Typography variant="h4" fontWeight={700}>
-                    {(products.reduce((sum, p) => sum + p.price, 0) / 1000).toFixed(0)}K
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Tổng giá trị
-                  </Typography>
-                </Box>
-              </Box>
-            </Card>
-          </Grid>
-        </Grid>
-
-        {/* Products Grid */}
-        {products.length === 0 ? (
+        <Stack spacing={3}>
           <Paper
-            elevation={2}
+            elevation={0}
             sx={{
-              p: 6,
-              textAlign: "center",
-              borderRadius: 3,
-              background: "white",
+              p: { xs: 3, md: 4 },
+              borderRadius: 4,
+              background: "linear-gradient(120deg, rgba(191,219,254,0.8), #ffffff)",
+              border: "1px solid rgba(37,99,235,0.2)",
+              color: "#0f172a",
             }}
           >
-            <InventoryIcon sx={{ fontSize: 80, color: "#bdbdbd", mb: 2 }} />
-            <Typography variant="h5" color="text.secondary" gutterBottom>
-              Chưa có sản phẩm nào
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Hãy thêm sản phẩm đầu tiên của bạn để bắt đầu bán hàng
-            </Typography>
-            <Button
-              component={Link}
-              to="/seller/add"
-              variant="contained"
-              size="large"
-              startIcon={<AddIcon />}
-              sx={{
-                background: "linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)",
-                px: 4,
-                py: 1.5,
-              }}
-            >
-              Thêm Sản Phẩm Ngay
-            </Button>
-          </Paper>
-        ) : (
-          <Grid container spacing={3}>
-            {products.map((p) => (
-              <Grid item key={p._id} xs={12} sm={6} md={4} lg={3}>
-                <Card
-                  elevation={3}
+            <Stack direction={{ xs: "column", md: "row" }} spacing={3} alignItems={{ xs: "flex-start", md: "center" }}>
+              <Stack spacing={1} flex={1}>
+                <Typography variant="overline" sx={{ color: "#2563eb", letterSpacing: 2 }}>
+                  Quản lý sản phẩm
+                </Typography>
+                <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                  Tối ưu danh mục và tồn kho ngay tại đây
+                </Typography>
+                <Typography variant="body2" sx={{ color: "#0ea5e9", maxWidth: 560 }}>
+                  Theo dõi tồn kho, trạng thái hiển thị và giá trị hàng hóa theo thời gian thực với bảng điều khiển mới nhất.
+                </Typography>
+              </Stack>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} width={{ xs: "100%", md: "auto" }}>
+                <Button
+                  variant="outlined"
+                  startIcon={<RefreshRoundedIcon />}
+                  onClick={fetchProducts}
                   sx={{
-                    height: "100%",
-                    display: "flex",
-                    flexDirection: "column",
-                    borderRadius: 3,
-                    overflow: "hidden",
-                    transition: "all 0.3s",
-                    border: "2px solid transparent",
-                    "&:hover": {
-                      transform: "translateY(-8px)",
-                      boxShadow: 8,
-                      borderColor: "#1976d2",
-                    },
+                    color: "#2563eb",
+                    borderColor: "rgba(37,99,235,0.4)",
+                    textTransform: "none",
                   }}
                 >
-                  <Box sx={{ position: "relative", overflow: "hidden" }}>
-                    <CardMedia
-                      component="img"
-                      height="200"
-                      image={p.images?.[0] ?? "/assets/logo.jpg"}
-                      alt={p.title}
-                      sx={{
-                        transition: "transform 0.3s",
-                        "&:hover": {
-                          transform: "scale(1.1)",
-                        },
-                      }}
-                    />
+                  Làm mới dữ liệu
+                </Button>
+                <Button
+                  component={Link}
+                  to="/seller/add"
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  sx={{
+                    background: "linear-gradient(120deg, #2563eb, #0ea5e9)",
+                    minWidth: 200,
+                    fontWeight: 600,
+                    textTransform: "none",
+                  }}
+                >
+                  Thêm sản phẩm mới
+                </Button>
+              </Stack>
+            </Stack>
+          </Paper>
+
+          <Paper
+            elevation={0}
+            sx={{
+              p: 3,
+              borderRadius: 4,
+              background: "rgba(255,255,255,0.95)",
+              border: "1px solid rgba(37,99,235,0.18)",
+              backdropFilter: "blur(12px)",
+            }}
+          >
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "flex-start", md: "center" }}>
+              <TextField
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Tìm theo tên sản phẩm..."
+                fullWidth
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchRoundedIcon sx={{ color: "#38bdf8" }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{
+                  flex: 1,
+                  input: { color: "#0f172a" },
+                  fieldset: { borderColor: "rgba(37,99,235,0.4)" },
+                }}
+              />
+              <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
+                {[
+                  { label: "Tất cả", value: "all" },
+                  { label: "Đang bán", value: "active" },
+                  { label: "Ngừng bán", value: "inactive" },
+                ].map((option) => (
+                  <Chip
+                    key={option.value}
+                    label={option.label}
+                    icon={<FilterAltRoundedIcon />}
+                    variant={statusFilter === option.value ? "filled" : "outlined"}
+                    color={statusFilter === option.value ? "primary" : "default"}
+                    onClick={() => setStatusFilter(option.value as typeof statusFilter)}
+                    sx={{
+                      borderColor: "rgba(37,99,235,0.3)",
+                      color: statusFilter === option.value ? "#ffffff" : "#2563eb",
+                      backgroundColor: statusFilter === option.value ? "#2563eb" : "transparent",
+                      "& .MuiChip-icon": { color: statusFilter === option.value ? "#fff" : "#60a5fa" },
+                    }}
+                  />
+                ))}
+              </Stack>
+            </Stack>
+          </Paper>
+
+          <Grid container spacing={2}>
+            {[
+              {
+                title: "Tổng sản phẩm",
+                value: products.length,
+                icon: <Inventory2RoundedIcon fontSize="large" />,
+                color: "#38bdf8",
+              },
+              {
+                title: "Đang hoạt động",
+                value: stats.activeCount,
+                icon: <VisibilityIcon fontSize="large" />,
+                color: "#34d399",
+              },
+              {
+                title: "Tồn kho",
+                value: stats.totalInventory,
+                icon: <StorefrontIcon fontSize="large" />,
+                color: "#fbbf24",
+              },
+              {
+                title: "Giá trị kho",
+                value: currencyFormatter.format(stats.totalValue),
+                icon: <TrendingUpRoundedIcon fontSize="large" />,
+                color: "#c084fc",
+              },
+              {
+                title: "Cảnh báo tồn",
+                value: stats.lowStock,
+                icon: <WarningAmberRoundedIcon fontSize="large" />,
+                color: "#fb7185",
+              },
+              {
+                title: "Nhóm nổi bật",
+                value: `${Math.round((stats.activeCount / Math.max(products.length, 1)) * 100)}% hoạt động`,
+                icon: <LocalOfferRoundedIcon fontSize="large" />,
+                color: "#f472b6",
+              },
+            ].map((card) => (
+              <Grid item xs={12} sm={6} md={4} lg={4} key={card.title}>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 3,
+                    borderRadius: 3,
+                    background: "#ffffff",
+                    border: "1px solid rgba(37,99,235,0.15)",
+                    color: "#0f172a",
+                    height: "100%",
+                  }}
+                >
+                  <Stack direction="row" spacing={2} alignItems="center">
                     <Box
                       sx={{
-                        position: "absolute",
-                        top: 10,
-                        right: 10,
-                        display: "flex",
-                        gap: 0.5,
+                        width: 54,
+                        height: 54,
+                        borderRadius: 2,
+                        display: "grid",
+                        placeItems: "center",
+                        background: `${card.color}20`,
+                        color: card.color,
                       }}
                     >
-                      {p.status === 'active' ? (
+                      {card.icon}
+                    </Box>
+                    <Box>
+                      <Typography variant="body2" sx={{ color: "#2563eb" }}>
+                        {card.title}
+                      </Typography>
+                      <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                        {card.value}
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
+
+          {filteredProducts.length === 0 ? (
+            <Paper
+              elevation={0}
+              sx={{
+                p: 6,
+                borderRadius: 4,
+                textAlign: "center",
+                background: "rgba(255,255,255,0.95)",
+                border: "1px dashed rgba(59,130,246,0.3)",
+                color: "#2563eb",
+              }}
+            >
+              <Inventory2RoundedIcon sx={{ fontSize: 72, color: "#38bdf8", mb: 2 }} />
+              <Typography variant="h5" sx={{ fontWeight: 600, color: "#0f172a", mb: 1 }}>
+                Không tìm thấy sản phẩm phù hợp
+              </Typography>
+              <Typography variant="body2">
+                Điều chỉnh bộ lọc hoặc thêm sản phẩm mới để bắt đầu bán hàng.
+              </Typography>
+              <Button
+                component={Link}
+                to="/seller/add"
+                variant="contained"
+                startIcon={<AddIcon />}
+                sx={{ mt: 3, background: "linear-gradient(120deg, #2563eb, #0ea5e9)" }}
+              >
+                Thêm sản phẩm ngay
+              </Button>
+            </Paper>
+          ) : (
+            <Grid container spacing={3}>
+              {filteredProducts.map((p) => (
+                <Grid item key={p._id} xs={12} sm={6} md={4} lg={3}>
+                  <Card
+                    sx={{
+                      height: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                      borderRadius: 3,
+                      background: "#ffffff",
+                      border: "1px solid rgba(37,99,235,0.18)",
+                      boxShadow: "0 15px 35px -12px rgba(37,99,235,0.25)",
+                    }}
+                  >
+                    <Box sx={{ position: "relative" }}>
+                      <CardMedia
+                        component="img"
+                        image={p.images?.[0] ?? "/assets/logo.jpg"}
+                        height="200"
+                        alt={p.title}
+                        sx={{ objectFit: "cover", filter: p.status === "active" ? "none" : "grayscale(0.3)" }}
+                      />
+                      <Chip
+                        label={p.status === "active" ? "Đang bán" : "Ngừng bán"}
+                        size="small"
+                        sx={{
+                          position: "absolute",
+                          top: 12,
+                          right: 12,
+                          borderRadius: 1,
+                          fontWeight: 600,
+                          background: p.status === "active" ? "rgba(59,130,246,0.95)" : "rgba(239,68,68,0.9)",
+                          color: "#fff",
+                        }}
+                      />
+                      {(p.stock || 0) < 10 && (
                         <Chip
-                          label="Đang bán"
+                          label={`Còn ${p.stock || 0}`}
                           size="small"
                           sx={{
-                            background: "linear-gradient(135deg, #4caf50 0%, #81c784 100%)",
-                            color: "white",
-                            fontWeight: 600,
-                          }}
-                        />
-                      ) : (
-                        <Chip
-                          label="Ngừng bán"
-                          size="small"
-                          sx={{
-                            background: "linear-gradient(135deg, #f44336 0%, #e57373 100%)",
-                            color: "white",
+                            position: "absolute",
+                            bottom: 12,
+                            left: 12,
+                            background: "rgba(251,191,36,0.95)",
+                            color: "#0f172a",
                             fontWeight: 600,
                           }}
                         />
                       )}
                     </Box>
-                    {(p.stock || 0) < 10 && (
-                      <Chip
-                        label={`Còn ${p.stock || 0}`}
-                        size="small"
-                        sx={{
-                          position: "absolute",
-                          top: 10,
-                          left: 10,
-                          background: "linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)",
-                          color: "white",
-                          fontWeight: 600,
-                        }}
-                      />
-                    )}
-                  </Box>
-
-                  <CardContent sx={{ flexGrow: 1, p: 2.5 }}>
-                    <Typography
-                      variant="h6"
-                      fontWeight={700}
-                      sx={{
-                        mb: 1,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        minHeight: "3.6em",
-                      }}
-                    >
-                      {p.title}
-                    </Typography>
-
-                    <Box
-                      sx={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        mb: 1.5,
-                      }}
-                    >
-                      <Typography
-                        variant="h5"
-                        fontWeight={700}
-                        sx={{
-                          background: "linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)",
-                          WebkitBackgroundClip: "text",
-                          WebkitTextFillColor: "transparent",
-                        }}
-                      >
-                        {p.price.toLocaleString()}₫
-                      </Typography>
-                      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                        {((p as ProductWithCategory).category) && (
-                          <Chip
-                            label={(p as ProductWithCategory).category}
-                            size="small"
-                            variant="outlined"
-                            sx={{ borderColor: "#1976d2", color: "#1976d2" }}
-                          />
-                        )}
+                    <CardContent sx={{ flexGrow: 1 }}>
+                      <Stack spacing={1.5}>
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 600,
+                            color: "#0f172a",
+                            display: "-webkit-box",
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {p.title}
+                        </Typography>
+                        <Stack direction="row" justifyContent="space-between" alignItems="center">
+                          <Typography variant="h5" sx={{ fontWeight: 700, color: "#2563eb" }}>
+                            {currencyFormatter.format(p.price || 0)}
+                          </Typography>
+                          {(p as ProductWithCategory).category && (
+                            <Chip
+                              label={(p as ProductWithCategory).category}
+                              size="small"
+                              variant="outlined"
+                              sx={{ borderColor: "rgba(37,99,235,0.4)", color: "#1d4ed8" }}
+                            />
+                          )}
+                        </Stack>
+                        <Stack direction="row" spacing={2} sx={{ color: "#1d4ed8", fontSize: 13 }}>
+                          <Typography>
+                            Tồn: <strong>{p.stock ?? 0}</strong>
+                          </Typography>
+                          <Typography>
+                            Lượt xem: <strong>{(p as { views?: number }).views ?? 0}</strong>
+                          </Typography>
+                        </Stack>
                       </Stack>
-                    </Box>
-                  </CardContent>
-
-                  <CardActions
-                    sx={{
-                      p: 2,
-                      pt: 0,
-                      display: "flex",
-                      gap: 1,
-                    }}
-                  >
-                    <Tooltip title="Chỉnh sửa">
+                    </CardContent>
+                    <CardActions sx={{ px: 3, pb: 3, gap: 1 }}>
                       <Button
                         fullWidth
                         variant="contained"
                         startIcon={<EditIcon />}
                         onClick={() => navigate(`/seller/edit/${p._id}`)}
                         sx={{
-                          background: "linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)",
-                          "&:hover": {
-                            background: "linear-gradient(135deg, #1565c0 0%, #2196f3 100%)",
-                          },
+                          textTransform: "none",
+                          background: "linear-gradient(120deg, #2563eb, #0ea5e9)",
                         }}
                       >
-                        Sửa
+                        Chỉnh sửa
                       </Button>
-                    </Tooltip>
-                    <Tooltip title="Xoá sản phẩm">
-                      <IconButton
-                        color="error"
-                        onClick={() => handleDelete(p._id)}
-                        sx={{
-                          border: "2px solid",
-                          borderColor: "#f44336",
-                          "&:hover": {
-                            background: "#f44336",
-                            color: "white",
-                          },
-                        }}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </CardActions>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-        )}
+                      <Tooltip title="Xoá sản phẩm">
+                        <IconButton
+                          color="error"
+                          onClick={() => handleDelete(p._id)}
+                          sx={{ border: "1px solid rgba(248,113,113,0.5)" }}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Tooltip>
+                    </CardActions>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+        </Stack>
       </Container>
     </Box>
   );

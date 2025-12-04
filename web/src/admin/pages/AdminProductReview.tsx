@@ -1,19 +1,19 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 import {
-    Alert,
-    Box,
-    Button,
-    Card,
-    CardActions,
-    CardContent,
-    CircularProgress,
-    Dialog,
-    DialogActions,
-    DialogContent,
-    DialogTitle,
-    Snackbar,
-    TextField,
-    Typography,
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardActions,
+  CardContent,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Snackbar,
+  TextField,
+  Typography,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { useEffect, useState } from "react";
@@ -127,7 +127,7 @@ export default function AdminProductReview() {
         🕓 Danh sách sản phẩm chờ duyệt
       </Typography>
 
-      <Button variant="outlined" sx={{ mb: 2 }} onClick={() => navigate("/admin/dashboard")}>
+      <Button variant="outlined" sx={{ mb: 2 }} onClick={() => navigate("/dashboard")}>
         🔙 Trở về Dashboard
       </Button>
 

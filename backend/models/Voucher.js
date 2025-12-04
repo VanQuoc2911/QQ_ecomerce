@@ -31,6 +31,9 @@ const voucherSchema = new mongoose.Schema({
   expiresAt: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
   highlightText: { type: String, default: "" },
+  aiImageUrl: { type: String, default: "" },
+  aiDescription: { type: String, default: "" },
+  freeShipping: { type: Boolean, default: false },
 });
 
 export default mongoose.model("Voucher", voucherSchema);

@@ -28,6 +28,13 @@ const AdminDashboard: React.FC = () => {
   const [stats, setStats] = useState<StatCard[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const adminBasePath = import.meta.env.VITE_ADMIN_ONLY === "true" ? "" : "/admin";
+  const goTo = (path: string) => {
+    const normalized = path.startsWith("/") ? path : `/${path}`;
+    const target = `${adminBasePath}${normalized}`.replace(/\/+/g, "/");
+    navigate(target);
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -39,23 +46,51 @@ const AdminDashboard: React.FC = () => {
 
   const fetchStats = async () => {
     try {
-      const [usersRes, productsRes, sellersRes] = await Promise.all([
+      const settled = await Promise.allSettled([
         api.get("/api/users"),
         api.get("/api/admin/products/pending"),
         api.get("/api/admin/seller-requests").catch(() => ({ data: [] })),
+        api.get("/api/admin/shipper-requests").catch(() => ({ data: [] })),
       ]);
+
+      type RespLike = { data?: unknown };
+      const usersRes = settled[0].status === "fulfilled" ? (settled[0].value as unknown as RespLike) : { data: { data: [] } };
+      const productsRes = settled[1].status === "fulfilled" ? (settled[1].value as unknown as RespLike) : { data: [] };
+      const sellersRes = settled[2].status === "fulfilled" ? (settled[2].value as unknown as RespLike) : { data: [] };
+      const shippersRes = settled[3].status === "fulfilled" ? (settled[3].value as unknown as RespLike) : { data: [] };
 
       const pendingSellers = Array.isArray(sellersRes.data)
         ? sellersRes.data.filter((s: { status: string }) => s.status === "pending").length
         : 0;
 
+      const pendingShippers = Array.isArray(shippersRes.data)
+        ? shippersRes.data.filter((s: { status: string }) => s.status === "pending").length
+        : 0;
+
+      let usersCount = 0;
+      const udata = usersRes.data;
+      if (Array.isArray(udata)) {
+        usersCount = udata.length;
+      } else if (udata && typeof udata === "object") {
+        const maybeInner = (udata as Record<string, unknown>).data;
+        if (Array.isArray(maybeInner)) usersCount = maybeInner.length;
+      }
+      let productsCount = 0;
+      const pdata = productsRes.data;
+      if (Array.isArray(pdata)) {
+        productsCount = pdata.length;
+      } else if (pdata && typeof pdata === "object") {
+        const maybeInner = (pdata as Record<string, unknown>).data;
+        if (Array.isArray(maybeInner)) productsCount = maybeInner.length;
+      }
+
       setStats([
         {
           title: "Total Users",
-          value: usersRes.data?.data?.length ?? usersRes.data?.length ?? 0,
+          value: usersCount,
           icon: <PeopleIcon sx={{ fontSize: 40 }} />,
           color: "#0288d1",
-          link: "/admin/users",
+          link: "users",
           trend: "+12.5%",
           subtitle: "Active members",
         },
@@ -64,16 +99,25 @@ const AdminDashboard: React.FC = () => {
           value: pendingSellers,
           icon: <StoreIcon sx={{ fontSize: 40 }} />,
           color: "#7b1fa2",
-          link: "/admin/seller-requests",
+          link: "seller-requests",
           trend: "Awaiting review",
           subtitle: "Pending approvals",
         },
         {
+          title: "Shipper Requests",
+          value: pendingShippers,
+          icon: <ShoppingCartIcon sx={{ fontSize: 40 }} />,
+          color: "#388e3c",
+          link: "shipper-requests",
+          trend: "Awaiting review",
+          subtitle: "Pending shippers",
+        },
+        {
           title: "Pending Products",
-          value: Array.isArray(productsRes.data) ? productsRes.data.length : productsRes.data?.length ?? 0,
+          value: productsCount,
           icon: <PendingActionsIcon sx={{ fontSize: 40 }} />,
           color: "#f57c00",
-          link: "/admin/products",
+          link: "products",
           trend: "Needs review",
           subtitle: "Awaiting approval",
         },
@@ -81,7 +125,7 @@ const AdminDashboard: React.FC = () => {
           title: "System Settings",
           icon: <SettingsIcon sx={{ fontSize: 40 }} />,
           color: "#00897b",
-          link: "/admin/settings",
+          link: "settings",
           subtitle: "Configure system",
         },
       ]);
@@ -97,11 +141,12 @@ const AdminDashboard: React.FC = () => {
   }, []);
 
   const quickActions = [
-    { label: "View All Products", description: "Browse and moderate listings", icon: <ShoppingCartIcon />, link: "/admin/products" },
-    { label: "User Management", description: "Manage customer accounts", icon: <PeopleIcon />, link: "/admin/users" },
-    { label: "Seller Requests", description: "Review pending sellers", icon: <StoreIcon />, link: "/admin/seller-requests" },
-    { label: "View Reports", description: "Check performance insights", icon: <AssessmentIcon />, link: "/admin/reports" },
-    { label: "System Settings", description: "Update platform policies", icon: <SettingsIcon />, link: "/admin/settings" },
+    { label: "View All Products", description: "Browse and moderate listings", icon: <ShoppingCartIcon />, link: "products" },
+    { label: "User Management", description: "Manage customer accounts", icon: <PeopleIcon />, link: "users" },
+    { label: "Seller Requests", description: "Review pending sellers", icon: <StoreIcon />, link: "seller-requests" },
+    { label: "Shipper Requests", description: "Review pending shippers", icon: <PendingActionsIcon />, link: "shipper-requests" },
+    { label: "View Reports", description: "Check performance insights", icon: <AssessmentIcon />, link: "reports" },
+    { label: "System Settings", description: "Update platform policies", icon: <SettingsIcon />, link: "settings" },
   ];
 
   if (loading) {
@@ -149,7 +194,7 @@ const AdminDashboard: React.FC = () => {
                 <Button
                   variant="outlined"
                   startIcon={<AssessmentIcon />}
-                  onClick={() => navigate("/admin/reports")}
+                  onClick={() => goTo("reports")}
                   sx={{
                     borderColor: "white",
                     color: "white",
@@ -199,7 +244,7 @@ const AdminDashboard: React.FC = () => {
                 transition: "border-color 0.2s ease",
                 "&:hover": stat.link ? { borderColor: stat.color } : {},
               }}
-              onClick={() => stat.link && navigate(stat.link)}
+              onClick={() => stat.link && goTo(stat.link)}
             >
               <CardContent sx={{ p: 3 }}>
                 <Box display="flex" justifyContent="space-between" alignItems="flex-start">
@@ -251,7 +296,7 @@ const AdminDashboard: React.FC = () => {
                   fullWidth
                   variant="outlined"
                   startIcon={action.icon}
-                  onClick={() => navigate(action.link)}
+                  onClick={() => goTo(action.link)}
                   sx={{
                     justifyContent: "flex-start",
                     borderRadius: 3,

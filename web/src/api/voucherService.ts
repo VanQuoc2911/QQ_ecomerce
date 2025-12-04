@@ -20,6 +20,7 @@ export interface AppliedVoucherResult {
   minOrderValue: number;
   sellerId: string | null;
   shopId: string | null;
+  freeShipping?: boolean;
 }
 
 export interface VoucherSuggestion {

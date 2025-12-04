@@ -19,42 +19,10 @@ import { io } from "socket.io-client";
 import { orderService, type OrderDetailResponse } from "../../api/orderService";
 import { paymentService } from "../../api/paymentService";
 import ReviewModal from "../../components/ReviewModal";
+import { STATUS_CONFIG } from "../../utils/orderStatus";
 
-const STATUS_BADGE: Record<
-  string,
-  { label: string; color: string; border: string; background: string }
-> = {
-  pending: {
-    label: "⏳ Chờ thanh toán",
-    color: "#f59e0b",
-    border: "rgba(245, 158, 11, 0.4)",
-    background: "rgba(245, 158, 11, 0.15)",
-  },
-  payment_pending: {
-    label: "📦 Chờ xử lý",
-    color: "#ff9800",
-    border: "rgba(255, 152, 0, 0.4)",
-    background: "rgba(255, 152, 0, 0.15)",
-  },
-  processing: {
-    label: "🚚 Đang xử lý",
-    color: "#3b82f6",
-    border: "rgba(59, 130, 246, 0.4)",
-    background: "rgba(59, 130, 246, 0.15)",
-  },
-  completed: {
-    label: "✅ Hoàn thành",
-    color: "#22c55e",
-    border: "rgba(34, 197, 94, 0.4)",
-    background: "rgba(34, 197, 94, 0.15)",
-  },
-  cancelled: {
-    label: "❌ Đã hủy",
-    color: "#ef4444",
-    border: "rgba(239, 68, 68, 0.4)",
-    background: "rgba(239, 68, 68, 0.15)",
-  },
-};
+// use centralized status config
+// NOTE: components below reference STATUS_CONFIG for labels/colors/borders
 
 // Countdown timer component for payment deadline
 function PaymentCountdown({ remainingMs, isExpired, deadlineDate }: { remainingMs: number | null; isExpired: boolean; deadlineDate: string | null }) {
@@ -135,7 +103,25 @@ export default function OrderDetail() {
       }
       try {
         const data = await orderService.getOrderDetail(id);
-        setOrder(data);
+        // enrich payment deadline fields (7 hours window for payment_pending)
+        const out: Partial<OrderDetailResponse> = { ...data };
+        if ((out.status === "payment_pending") && !out.paymentDeadline && (out.remainingTime === undefined || out.remainingTime === null)) {
+          const createdTs = out.createdAt ? Date.parse(out.createdAt) : NaN;
+          if (!Number.isNaN(createdTs)) {
+            const deadline = createdTs + 7 * 3600 * 1000;
+            const remaining = deadline - Date.now();
+            out.paymentDeadline = new Date(deadline).toISOString();
+            out.remainingTime = remaining > 0 ? remaining : 0;
+            out.isExpired = remaining <= 0;
+          }
+        } else if (out.paymentDeadline) {
+          const remaining = Date.parse(out.paymentDeadline) - Date.now();
+          out.remainingTime = remaining > 0 ? remaining : 0;
+          out.isExpired = remaining <= 0;
+        } else if (out.remainingTime !== undefined) {
+          out.isExpired = (out.remainingTime || 0) <= 0;
+        }
+        setOrder(out as OrderDetailResponse);
       } catch (err) {
         console.error(err);
         toast.error("Không thể tải chi tiết đơn hàng!");
@@ -147,6 +133,59 @@ export default function OrderDetail() {
     },
     [id]
   );
+
+  // Auto-cancel logic for payment_pending orders: countdown and cancel when expired
+  useEffect(() => {
+    if (!order || order.status !== "payment_pending") return;
+
+    // Keep a ticking interval to update remainingTime in state for UI and to detect expiry
+    const tick = setInterval(() => {
+      setOrder((prev) => {
+        if (!prev) return prev;
+        const prevRem = prev.remainingTime ?? 0;
+        const nextRem = Math.max(prevRem - 1000, 0);
+        const updated = { ...prev, remainingTime: nextRem, isExpired: nextRem <= 0 } as OrderDetailResponse;
+        return updated;
+      });
+    }, 1000);
+
+    // Cancel timeout: when remainingTime reaches zero, attempt cancel on server
+    let cancelTimeout: ReturnType<typeof setTimeout> | null = null;
+    if ((order.remainingTime ?? 0) > 0) {
+      cancelTimeout = setTimeout(async () => {
+        try {
+          const res = await orderService.cancelOrder(order._id);
+          setOrder(res.order);
+          toast.info("Đơn hàng đã tự động hủy do quá hạn thanh toán (7 giờ).");
+        } catch (err) {
+          // if cancel fails, refetch to sync
+          try {
+            const fresh = await orderService.getOrderDetail(order._id);
+            setOrder(fresh);
+          } catch {}
+        }
+      }, order.remainingTime ?? 0);
+    } else {
+      // expired already: attempt cancel immediately
+      (async () => {
+        try {
+          const res = await orderService.cancelOrder(order._id);
+          setOrder(res.order);
+          toast.info("Đơn hàng đã tự động hủy do quá hạn thanh toán (7 giờ).");
+        } catch {
+          try {
+            const fresh = await orderService.getOrderDetail(order._id);
+            setOrder(fresh);
+          } catch {}
+        }
+      })();
+    }
+
+    return () => {
+      clearInterval(tick);
+      if (cancelTimeout) clearTimeout(cancelTimeout);
+    };
+  }, [order?._id, order?.status]);
 
   useEffect(() => {
     void fetchOrder();
@@ -321,7 +360,7 @@ export default function OrderDetail() {
   const computedTotal = Math.max(itemsSubtotal + shippingFee - voucherDiscount, 0);
   const totalToDisplay = normalizedOrder.totalAmount ?? computedTotal;
   const statusBadge =
-    STATUS_BADGE[order.status ?? ""] || {
+    STATUS_CONFIG[order.status ?? ""] || {
       label: order.status ? order.status : "Không rõ",
       color: "#475569",
       border: "rgba(148, 163, 184, 0.4)",
@@ -608,6 +647,18 @@ export default function OrderDetail() {
                     <Typography sx={{ mt: 2, p: 1, bgcolor: "rgba(33, 150, 243, 0.1)", borderRadius: 1, color: "#1976d2" }}>
                       ⏳ Đã báo hoàn thành — đang chờ seller xác nhận.
                     </Typography>
+                  )}
+                  {/* Shipper info (if assigned) */}
+                  {order.shipperSnapshot && (
+                    <Paper sx={{ mt: 3, p: 2, borderRadius: 2 }}>
+                      <Typography variant="h6" fontWeight={700} gutterBottom>
+                        Thông tin người giao
+                      </Typography>
+                      <Typography variant="body2"><strong>Tên:</strong> {order.shipperSnapshot.name ?? '-'}</Typography>
+                      <Typography variant="body2"><strong>Số điện thoại:</strong> {order.shipperSnapshot.phone ?? '-'}</Typography>
+                      <Typography variant="body2"><strong>Phương tiện:</strong> {order.shipperSnapshot.vehicleType ?? '-'}</Typography>
+                      <Typography variant="body2"><strong>Biển số:</strong> {order.shipperSnapshot.licensePlate ?? '-'}</Typography>
+                    </Paper>
                   )}
                 </Paper>
               )}

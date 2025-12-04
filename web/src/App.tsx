@@ -1,18 +1,22 @@
+import { Box, CircularProgress } from "@mui/material";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import ChatbotFloatingButton from "./components/chat/ChatbotFloatingButton";
-import { AuthProvider } from "./context/AuthProvider";
+import { useAuth } from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
 import MainLayout from "./layouts/MainLayout";
 import AdminRoutes from "./routes/AdminRoutes";
 import SellerRoutes from "./routes/SellerRoutes";
+import ShipperRoutes from "./routes/ShipperRoutes";
 import UserRoutes from "./routes/UserRoutes";
 
 export default function App() {
+  const isAdminOnly = import.meta.env.VITE_ADMIN_ONLY === "true";
+  const isSellerOnly = import.meta.env.VITE_SELLER_ONLY === "true";
+  const isUserOnly = import.meta.env.VITE_USER_ONLY === "true";
   return (
-    <AuthProvider>
-      <SocketProvider>
+    <SocketProvider>
         <ToastContainer
           position="top-center"
           autoClose={1000}
@@ -33,18 +37,33 @@ export default function App() {
           }}
         >
           <Routes>
-            {/* Layout người dùng */}
-            <Route path="/" element={<MainLayout />}>
-              <Route index element={<Navigate to="/home" replace />} />
+            {isAdminOnly ? (
+              // Admin-only: mount admin routes at root
+              <Route path="/*" element={<AdminRoutes />} />
+            ) : isSellerOnly ? (
+              // Seller-only: mount seller routes at root
+              <Route path="/*" element={<SellerRoutes />} />
+            ) : isUserOnly ? (
+              // User-only: mount user routes at root
               <Route path="/*" element={<UserRoutes />} />
-            </Route>
+            ) : (
+              // Default: mount all layouts together
+              <>
+                {/* Layout người dùng */}
+                <Route path="/" element={<MainLayout />}>
+                  <Route index element={<HomeIndexRedirect />} />
+                  <Route path="/*" element={<UserRoutes />} />
+                </Route>
 
-            {/* Layout admin */}
-            <Route path="/admin/*" element={<AdminRoutes />} />
-            
-            {/* Layout seller */}
-            <Route path="/seller/*" element={<SellerRoutes />} />
-            
+                {/* Layout admin */}
+                <Route path="/admin/*" element={<AdminRoutes />} />
+
+                {/* Layout seller */}
+                <Route path="/seller/*" element={<SellerRoutes />} />
+                {/* Layout shipper */}
+                <Route path="/shipper/*" element={<ShipperRoutes />} />
+              </>
+            )}
           </Routes>
           <ChatbotFloatingButton />
         </BrowserRouter>
@@ -60,6 +79,23 @@ export default function App() {
           }
         `}</style>
       </SocketProvider>
-    </AuthProvider>
   );
+}
+
+function HomeIndexRedirect() {
+  const { user, role, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <Box minHeight="60vh" display="flex" alignItems="center" justifyContent="center">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (user && role === "seller") {
+    return <Navigate to="/seller/dashboard" replace />;
+  }
+
+  return <Navigate to="/home" replace />;
 }

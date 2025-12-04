@@ -1,16 +1,29 @@
+import CancelOutlinedIcon from "@mui/icons-material/CancelOutlined";
+import CheckCircleOutlineRoundedIcon from "@mui/icons-material/CheckCircleOutlineRounded";
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined";
+import MonetizationOnOutlinedIcon from "@mui/icons-material/MonetizationOnOutlined";
+import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
+import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
 import {
+  Avatar,
   Box,
   Button,
   Card,
   CardContent,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
+  Drawer,
+  IconButton,
+  InputAdornment,
   Paper,
   Stack,
+  Step,
+  StepLabel,
+  Stepper,
+  Tab,
   Table,
   TableBody,
   TableCell,
@@ -18,14 +31,20 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  Tabs,
   TextField,
+  Tooltip,
   Typography,
+  type ButtonProps,
 } from "@mui/material";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import api from "../../api/axios";
 import { orderService, type OrderDetailResponse } from "../../api/orderService";
 import { sellerService, type SellerStats } from "../../api/sellerService";
 import { useAuth } from "../../context/AuthContext";
+import { getStatusLabel, isAwaitingPayment } from "../../utils/orderStatus";
+
+import { io } from "socket.io-client";
 
 interface OrderRow {
   _id: string;
@@ -45,6 +64,7 @@ export default function SellerOrders() {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<OrderDetailResponse | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [stats, setStats] = useState<SellerStats>({
     totalProducts: 0,
     totalSales: 0,
@@ -55,37 +75,18 @@ export default function SellerOrders() {
     revenueLastMonth: 0,
   });
 
-  // Helper functions
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      pending: "Chờ thanh toán",
-      payment_pending: "Chờ xác nhận thanh toán",
-      processing: "Đang xử lý",
-      shipping: "Đang giao",
-      completed: "Hoàn thành",
-      cancelled: "Hủy",
-    };
-    return labels[status] || status;
-  };
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, "warning" | "success" | "error" | "info" | "default"> = {
-      pending: "warning",
-      payment_pending: "info",
-      processing: "info",
-      shipping: "warning",
-      completed: "success",
-      cancelled: "error",
-    };
-    return colors[status] || "default";
-  };
+  // status labels/colors are provided by centralized STATUS_CONFIG
 
   // Get allowed next statuses based on current status (forward-only transitions)
   const getAllowedNextStatuses = (currentStatus?: string): string[] => {
     const transitions: Record<string, string[]> = {
-      pending: ["payment_pending", "cancelled"],
-      payment_pending: ["processing", "cancelled"],
-      processing: ["shipping", "completed", "cancelled"],
+      // Sellers should not manage payment confirmation here; remove intermediate payment_pending state.
+      pending: ["cancelled"],
+      // Sellers should only mark an order as prepared (awaiting_shipment) or cancel it.
+      // Subsequent shipping statuses are managed by shippers.
+      processing: ["awaiting_shipment", "cancelled"],
+      // Sau khi đã chuẩn bị hàng, không cho phép huỷ nữa
+      awaiting_shipment: [],
       shipping: ["completed", "cancelled"],
       completed: [],
       cancelled: [],
@@ -134,6 +135,29 @@ export default function SellerOrders() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, rowsPerPage, user]);
 
+  // Real-time updates from server via socket
+  useEffect(() => {
+    const socket = io();
+    socket.on("connect", () => console.log("SellerOrders socket connected:", socket.id));
+
+    const refresh = () => {
+      fetchOrders({ page: 0, limit: rowsPerPage, q, status: statusFilter });
+      fetchStats();
+    };
+
+    socket.on("order:created", refresh);
+    socket.on("order:statusUpdated", () => {
+      // Optionally narrow by seller-related payload if available
+      refresh();
+    });
+    socket.on("order:paymentConfirmed", refresh);
+
+    return () => {
+      socket.disconnect();
+    };
+    // include deps used by refresh so hooks react to changes
+  }, [page, rowsPerPage, q, statusFilter, user]);
+
   const fetchStats = async () => {
     try {
       const data = await sellerService.getStats();
@@ -152,10 +176,16 @@ export default function SellerOrders() {
     setPage(0);
   };
 
+  const currencyFormatter = useMemo(
+    () => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }),
+    []
+  );
+
   const openOrderDetail = async (orderId: string) => {
     try {
       const data = await orderService.getOrderDetail(orderId);
       setSelectedOrder(data as OrderDetailResponse);
+      setDrawerOpen(true);
     } catch (err) {
       console.error("Failed to load order detail", err);
     }
@@ -174,206 +204,342 @@ export default function SellerOrders() {
     }
   };
 
+  // Quick action for list items: mark processing -> awaiting_shipment
+  const handlePrepareOrder = async (orderId: string) => {
+    try {
+      await orderService.updateOrderStatus(orderId, "awaiting_shipment");
+      // Refresh list and stats
+      fetchOrders({ page, limit: rowsPerPage, q, status: statusFilter });
+      fetchStats();
+    } catch (err) {
+      console.error("Failed to mark order as prepared", err);
+    }
+  };
+
+  function getStatusMuiColor(arg0: string): import("@mui/types").OverridableStringUnion<
+    "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning",
+    import("@mui/material").ChipPropsColorOverrides
+  > | undefined {
+    switch (arg0) {
+      case "pending":
+        return "default";
+      case "payment_pending":
+        return "secondary";
+      case "processing":
+      case "awaiting_shipment":
+        return "info";
+      case "shipping":
+        return "warning";
+      case "completed":
+        return "success";
+      case "cancelled":
+        return "error";
+      default:
+        return "default";
+    }
+  }
+
+  const closeDrawer = () => {
+    setDrawerOpen(false);
+    setSelectedOrder(null);
+  };
+
+  const statusTabs = [
+    { label: "Tất cả", value: null },
+    { label: "Chờ xử lý", value: "pending" },
+    { label: "Đang xử lý", value: "processing" },
+    { label: "Chờ giao", value: "awaiting_shipment" },
+    { label: "Đang giao", value: "shipping" },
+    { label: "Hoàn thành", value: "completed" },
+    { label: "Đã hủy", value: "cancelled" },
+  ];
+
+  const focusAwaitingOrders = () => {
+    setStatusFilter("awaiting_shipment");
+    setPage(0);
+    fetchOrders({ page: 0, limit: rowsPerPage, q, status: "awaiting_shipment" });
+  };
+
   return (
-    <Box>
-      <Typography variant="h5" mb={3}>
-        Đơn hàng của shop
-      </Typography>
-
-      {/* Stats Cards */}
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "1fr 1fr 1fr" }, gap: 2, mb: 3 }}>
-        <Card sx={{ backgroundColor: "#f5f5f5" }}>
-          <CardContent>
-            <Typography color="textSecondary" gutterBottom variant="body2">
-              Tổng sản phẩm
-            </Typography>
-            <Typography variant="h5" sx={{ fontWeight: 700 }}>
-              {stats.totalProducts}
-            </Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ backgroundColor: "#f5f5f5" }}>
-          <CardContent>
-            <Typography color="textSecondary" gutterBottom variant="body2">
-              Số đơn hàng
-            </Typography>
-            <Typography variant="h5" sx={{ fontWeight: 700 }}>
-              {stats.totalSales}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Hoàn thành: {stats.completedCount} | Chờ: {stats.pendingCount}
-            </Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ backgroundColor: "#fff3e0" }}>
-          <CardContent>
-            <Typography color="textSecondary" gutterBottom variant="body2">
-              Doanh thu (30 ngày)
-            </Typography>
-            <Typography variant="h5" sx={{ color: "#d32f2f", fontWeight: 700 }}>
-              {stats.revenueLastMonth.toLocaleString()} ₫
-            </Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ backgroundColor: "#e8f5e9" }}>
-          <CardContent>
-            <Typography color="textSecondary" gutterBottom variant="body2">
-              Doanh thu (tất cả)
-            </Typography>
-            <Typography variant="h5" sx={{ color: "#2e7d32", fontWeight: 700 }}>
-              {stats.totalRevenue.toLocaleString()} ₫
-            </Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ backgroundColor: "#fff8e1" }}>
-          <CardContent>
-            <Typography color="textSecondary" gutterBottom variant="body2">
-              Đơn hoàn thành
-            </Typography>
-            <Typography variant="h5" sx={{ color: "#f57f17", fontWeight: 700 }}>
-              {stats.completedCount}
-            </Typography>
-          </CardContent>
-        </Card>
-        <Card sx={{ backgroundColor: "#ffebee" }}>
-          <CardContent>
-            <Typography color="textSecondary" gutterBottom variant="body2">
-              Đơn chờ xử lý
-            </Typography>
-            <Typography variant="h5" sx={{ color: "#c62828", fontWeight: 700 }}>
-              {stats.pendingCount}
-            </Typography>
-          </CardContent>
-        </Card>
-      </Box>
-
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
-          <TextField size="small" placeholder="Tìm kiếm mã đơn hoặc khách hàng" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') fetchOrders({ page: 0, limit: rowsPerPage, q, status: statusFilter }); }} />
-          <Stack direction="row" spacing={1}>
-            <Chip label="Tất cả" color={!statusFilter ? "primary" : "default"} onClick={() => { setStatusFilter(null); fetchOrders({ page: 0, limit: rowsPerPage, q, status: null }); }} />
-            <Chip label="Chờ xử lý" color={statusFilter === "pending" ? "primary" : "default"} onClick={() => { setStatusFilter("pending"); fetchOrders({ page: 0, limit: rowsPerPage, q, status: "pending" }); }} />
-            <Chip label="Hoàn thành" color={statusFilter === "completed" ? "primary" : "default"} onClick={() => { setStatusFilter("completed"); fetchOrders({ page: 0, limit: rowsPerPage, q, status: "completed" }); }} />
-            <Chip label="Hủy" color={statusFilter === "cancelled" ? "primary" : "default"} onClick={() => { setStatusFilter("cancelled"); fetchOrders({ page: 0, limit: rowsPerPage, q, status: "cancelled" }); }} />
+    <Box sx={{ minHeight: "100vh", background: "linear-gradient(180deg, #ffffff 0%, #dbeafe 85%)", py: 2 }}>
+      <Stack spacing={3}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: { xs: 3, md: 4 },
+            borderRadius: 4,
+            background: "linear-gradient(120deg, rgba(191,219,254,0.9), #ffffff)",
+            border: "1px solid rgba(37,99,235,0.2)",
+            color: "#0f172a",
+          }}
+        >
+          <Stack direction={{ xs: "column", md: "row" }} spacing={3} alignItems={{ md: "center" }}>
+            <Stack spacing={1} flex={1}>
+              <Typography variant="overline" sx={{ color: "#2563eb", letterSpacing: 2 }}>
+                Tổng quan đơn hàng
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 700 }}>
+                Kiểm soát toàn bộ tiến trình giao hàng
+              </Typography>
+              <Typography variant="body2" sx={{ color: "#0ea5e9", maxWidth: 520 }}>
+                Theo dõi doanh thu, số lượng đơn và trạng thái xử lý theo thời gian thực. Các thay đổi được cập nhật tức thì từ hệ thống.
+              </Typography>
+            </Stack>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <Button
+                variant="outlined"
+                startIcon={<RefreshRoundedIcon />}
+                onClick={() => fetchOrders({ page, limit: rowsPerPage, q, status: statusFilter })}
+                sx={{ borderColor: "rgba(37,99,235,0.4)", color: "#2563eb", textTransform: "none" }}
+              >
+                Làm mới dữ liệu
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<LocalShippingOutlinedIcon />}
+                sx={{
+                  textTransform: "none",
+                  background: "linear-gradient(120deg, #2563eb, #0ea5e9)",
+                }}
+                onClick={focusAwaitingOrders}
+              >
+                Đơn cần gửi
+              </Button>
+            </Stack>
           </Stack>
-        </Stack>
-      </Paper>
+          <GridStats stats={stats} formatter={currencyFormatter} />
+        </Paper>
 
-      <TableContainer component={Paper}>
-        <Table>
-          <TableHead>
-            <TableRow sx={{ backgroundColor: "#f5f5f5" }}>
-              <TableCell sx={{ fontWeight: 600 }}>Mã đơn</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Khách hàng</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Sản phẩm</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Thành tiền</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Trạng thái</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Ngày tạo</TableCell>
-              <TableCell sx={{ fontWeight: 600 }}>Hành động</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {orders.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 3 }}>
-                  <Typography color="text.secondary">Không có đơn hàng</Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              orders.map((o) => (
-                <TableRow key={o._id} hover sx={{ "&:hover": { backgroundColor: "#fafafa" } }}>
-                  <TableCell sx={{ fontWeight: 500, fontSize: "0.95rem" }}>{o._id?.slice(0, 8)}...</TableCell>
-                  <TableCell>{o.customerName ?? "-"}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="primary">
-                      {o.products?.length ?? 0} sản phẩm
-                    </Typography>
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 600, color: "#d32f2f" }}>
-                    {(o.totalAmount ?? 0).toLocaleString()} ₫
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={getStatusLabel(o.status ?? "pending")}
-                      size="small"
-                      color={getStatusColor(o.status ?? "pending")}
-                      variant="outlined"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption">
-                      {o.createdAt ? new Date(o.createdAt).toLocaleDateString("vi-VN") : "-"}
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Button size="small" variant="contained" onClick={() => openOrderDetail(o._id)}>
-                      Xem
-                    </Button>
-                  </TableCell>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 3,
+            borderRadius: 4,
+            background: "rgba(255,255,255,0.95)",
+            border: "1px solid rgba(37,99,235,0.18)",
+          }}
+        >
+          <Stack spacing={2}>
+            <TextField
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const inputValue = (e.target as HTMLInputElement).value;
+                  setPage(0);
+                  fetchOrders({ page: 0, limit: rowsPerPage, q: inputValue, status: statusFilter });
+                }
+              }}
+              placeholder="Tìm theo mã đơn, khách hàng..."
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchRoundedIcon sx={{ color: "#60a5fa" }} />
+                  </InputAdornment>
+                ),
+              }}
+              sx={{
+                fieldset: { borderColor: "rgba(37,99,235,0.35)" },
+                input: { color: "#0f172a" },
+              }}
+            />
+            <Tabs
+              value={statusFilter ?? "all"}
+              onChange={(_, value) => {
+                const next = value === "all" ? null : value;
+                setStatusFilter(next);
+                setPage(0);
+                fetchOrders({ page: 0, limit: rowsPerPage, q, status: next });
+              }}
+              variant="scrollable"
+              scrollButtons="auto"
+              textColor="primary"
+              indicatorColor="primary"
+            >
+              {statusTabs.map((tab) => (
+                <Tab
+                  key={tab.label}
+                  label={tab.label}
+                  value={tab.value ?? "all"}
+                  sx={{ color: "#2563eb", textTransform: "none" }}
+                />
+              ))}
+            </Tabs>
+          </Stack>
+        </Paper>
+
+        <Paper
+          elevation={0}
+          sx={{
+            borderRadius: 4,
+            overflow: "hidden",
+            background: "#ffffff",
+            border: "1px solid rgba(37,99,235,0.15)",
+          }}
+        >
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ backgroundColor: "rgba(191,219,254,0.6)" }}>
+                  {[
+                    "Mã đơn",
+                    "Khách hàng",
+                    "Sản phẩm",
+                    "Giá trị",
+                    "Trạng thái",
+                    "Ngày tạo",
+                    "Hành động",
+                  ].map((col) => (
+                    <TableCell key={col} sx={{ color: "#0f172a", fontWeight: 600 }}>
+                      {col}
+                    </TableCell>
+                  ))}
                 </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+              </TableHead>
+              <TableBody>
+                {orders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
+                      <Typography color="#60a5fa">Không có đơn hàng phù hợp</Typography>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  orders.map((o) => (
+                    <TableRow key={o._id} hover sx={{ "&:hover": { backgroundColor: "rgba(37,99,235,0.05)" } }}>
+                      <TableCell sx={{ fontWeight: 600, color: "#0f172a" }}>{o._id?.slice(0, 10)}</TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1.5} alignItems="center">
+                          <Avatar sx={{ width: 36, height: 36, bgcolor: "#2563eb", color: "#fff" }}>
+                            {(o.customerName ?? "??").slice(0, 1).toUpperCase()}
+                          </Avatar>
+                          <Box>
+                            <Typography sx={{ color: "#0f172a", fontWeight: 600 }}>{o.customerName ?? "Khách lẻ"}</Typography>
+                            <Typography variant="caption" sx={{ color: "#1d4ed8" }}>
+                              {o.products?.length ?? 0} mặt hàng
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ color: "#1d4ed8" }}>
+                          {o.products?.length ?? 0} sản phẩm
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography sx={{ fontWeight: 700, color: "#2563eb" }}>
+                          {currencyFormatter.format(o.totalAmount ?? 0)}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={getStatusLabel(o.status ?? "pending")}
+                          size="small"
+                          color={getStatusMuiColor(o.status ?? "pending")}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption" sx={{ color: "#2563eb" }}>
+                          {o.createdAt ? new Date(o.createdAt).toLocaleDateString("vi-VN") : "-"}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1}>
+                          <Button variant="outlined" size="small" onClick={() => openOrderDetail(o._id)} sx={{ borderColor: "rgba(37,99,235,0.4)", color: "#2563eb" }}>
+                            Chi tiết
+                          </Button>
+                          {o.status === "processing" && (
+                            <Tooltip title="Đánh dấu đã chuẩn bị hàng">
+                              <Button
+                                size="small"
+                                variant="contained"
+                                sx={{ background: "linear-gradient(120deg, #2563eb, #0ea5e9)" }}
+                                onClick={() => handlePrepareOrder(o._id)}
+                              >
+                                ✓ Chuẩn bị xong
+                              </Button>
+                            </Tooltip>
+                          )}
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            onPageChange={handleChangePage}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={handleChangeRowsPerPage}
+            rowsPerPageOptions={[5, 10, 25]}
+            sx={{ color: "#2563eb" }}
+          />
+        </Paper>
+      </Stack>
 
-        <TablePagination
-          component="div"
-          count={total}
-          page={page}
-          onPageChange={handleChangePage}
-          rowsPerPage={rowsPerPage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-          rowsPerPageOptions={[5, 10, 25]}
-        />
-      </TableContainer>
-
-      <Dialog open={!!selectedOrder} onClose={() => setSelectedOrder(null)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ fontWeight: 600, fontSize: "1.3rem" }}>Chi tiết đơn hàng #{selectedOrder?._id?.slice(0, 8)}</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          {selectedOrder ? (
-            <Box>
-              {/* Customer & Shipping Info Section */}
-              <Paper sx={{ p: 2, mb: 2, backgroundColor: "#f9f9f9" }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
-                  Thông tin khách hàng
+      <Drawer anchor="right" open={drawerOpen && !!selectedOrder} onClose={closeDrawer} PaperProps={{ sx: { width: { xs: "100%", sm: 480 } } }}>
+        {selectedOrder && (
+          <Box sx={{ height: "100%", display: "flex", flexDirection: "column", background: "#ffffff", color: "#0f172a" }}>
+            <Box sx={{ p: 3, borderBottom: "1px solid rgba(37,99,235,0.25)", display: "flex", alignItems: "center" }}>
+              <Box>
+                <Typography variant="overline" sx={{ color: "#60a5fa" }}>
+                  Chi tiết đơn hàng
                 </Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                  #{selectedOrder._id?.slice(0, 10)}
+                </Typography>
+              </Box>
+              <Box sx={{ flex: 1 }} />
+              <IconButton onClick={closeDrawer} sx={{ color: "#2563eb" }}>
+                <CloseRoundedIcon />
+              </IconButton>
+            </Box>
+
+            <Box sx={{ px: 3, py: 2 }}>
+              <Stepper activeStep={Math.max(["pending", "processing", "awaiting_shipment", "shipping", "completed"].indexOf(selectedOrder.status ?? "pending"), 0)} alternativeLabel>
+                {["pending", "processing", "awaiting_shipment", "shipping", "completed"].map((step) => (
+                  <Step key={step}>
+                    <StepLabel>{getStatusLabel(step)}</StepLabel>
+                  </Step>
+                ))}
+              </Stepper>
+            </Box>
+
+            <Box sx={{ flex: 1, overflowY: "auto", px: 3, pb: 3 }}>
+              <Section title="Thông tin khách hàng">
                 <Stack spacing={1}>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">
-                      Tên:
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                      {typeof selectedOrder.userId === "object" && selectedOrder.userId?.name
-                        ? selectedOrder.userId.name
-                        : selectedOrder.customerName ?? "-"}
-                    </Typography>
-                  </Box>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">
-                      Điện thoại:
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                      {selectedOrder.shippingAddress?.phone ?? "-"}
-                    </Typography>
-                  </Box>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="body2" color="text.secondary">
-                      Địa chỉ:
-                    </Typography>
-                    <Typography variant="body2" sx={{ fontWeight: 500, textAlign: "right", maxWidth: "60%" }}>
-                      {selectedOrder.shippingAddress
+                  <InfoRow
+                    label="Khách hàng"
+                    value={(typeof selectedOrder.userId === "object" && selectedOrder.userId?.name) || selectedOrder.customerName || "-"}
+                  />
+                  <InfoRow label="Điện thoại" value={selectedOrder.shippingAddress?.phone ?? "-"} />
+                  <InfoRow
+                    label="Địa chỉ"
+                    value={
+                      selectedOrder.shippingAddress
                         ? `${selectedOrder.shippingAddress.detail ?? selectedOrder.shippingAddress.address ?? ""}, ${selectedOrder.shippingAddress.ward ?? ""}, ${selectedOrder.shippingAddress.district ?? ""}, ${selectedOrder.shippingAddress.province ?? selectedOrder.shippingAddress.city ?? ""}`
-                        : "-"}
-                    </Typography>
-                  </Box>
+                        : "-"
+                    }
+                  />
+                  <InfoRow label="Thanh toán" value={selectedOrder.paymentMethod ?? "Không xác định"} />
                 </Stack>
-              </Paper>
+              </Section>
 
-              {/* Products Section */}
-              <Paper sx={{ p: 2, mb: 2, backgroundColor: "#f9f9f9" }}>
-                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                  Sản phẩm ({selectedOrder.products?.length ?? 0})
-                </Typography>
+              {selectedOrder.shipperSnapshot && (
+                <Section title="Đơn vị vận chuyển">
+                  <Stack spacing={1}>
+                    <InfoRow label="Người giao" value={selectedOrder.shipperSnapshot.name ?? "-"} />
+                    <InfoRow label="Điện thoại" value={selectedOrder.shipperSnapshot.phone ?? "-"} />
+                    <InfoRow label="Phương tiện" value={selectedOrder.shipperSnapshot.vehicleType ?? "-"} />
+                    <InfoRow label="Biển số" value={selectedOrder.shipperSnapshot.licensePlate ?? "-"} />
+                  </Stack>
+                </Section>
+              )}
+
+              <Section title={`Sản phẩm (${selectedOrder.products?.length ?? 0})`}>
                 <Stack spacing={2}>
                   {selectedOrder.products?.map((p, idx) => {
                     const productRef = p.productId;
@@ -381,92 +547,40 @@ export default function SellerOrders() {
                     const unitPrice = p.price ?? (typeof productRef === "object" ? productRef?.price : undefined) ?? 0;
                     const image = typeof productRef === "object" ? productRef?.images?.[0] : undefined;
                     return (
-                      <Box
-                        key={String((typeof productRef === "object" ? productRef?._id : productRef) ?? idx)}
-                        display="flex"
-                        gap={2}
-                        pb={1.5}
-                        borderBottom="1px solid #e0e0e0"
-                      >
+                      <Box key={idx} sx={{ display: "flex", gap: 2, border: "1px solid rgba(37,99,235,0.2)", borderRadius: 2, p: 1.5, background: "rgba(219,234,254,0.4)" }}>
                         {image && (
-                          <Box
-                            component="img"
-                            src={image}
-                            alt={title}
-                            sx={{ width: 80, height: 80, objectFit: "cover", borderRadius: 1 }}
-                          />
+                          <Box component="img" src={image} alt={title} sx={{ width: 72, height: 72, borderRadius: 1.5, objectFit: "cover" }} />
                         )}
                         <Box flex={1}>
-                          <Typography sx={{ fontWeight: 600, mb: 0.5 }}>
-                            {title}
+                          <Typography sx={{ fontWeight: 600 }}>{title}</Typography>
+                          <Typography variant="body2" color="#1d4ed8">
+                            Số lượng: {p.quantity}
                           </Typography>
-                          <Stack direction="row" spacing={2} sx={{ mb: 0.5 }}>
-                            <Typography variant="caption" color="text.secondary">
-                              Số lượng: <strong>{p.quantity}</strong>
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              Giá: <strong>{unitPrice.toLocaleString()} ₫</strong>
-                            </Typography>
-                          </Stack>
-                          <Typography sx={{ fontWeight: 600, color: "#d32f2f" }}>
-                            {(unitPrice * p.quantity).toLocaleString()} ₫
+                          <Typography sx={{ fontWeight: 600, color: "#2563eb" }}>
+                            {currencyFormatter.format(unitPrice * p.quantity)}
                           </Typography>
                         </Box>
                       </Box>
                     );
                   })}
                 </Stack>
-              </Paper>
+              </Section>
 
-              {/* Summary Section */}
-              <Paper sx={{ p: 2, backgroundColor: "#f9f9f9" }}>
+              <Section title="Tổng kết">
                 <Stack spacing={1.5}>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography>Tiền hàng:</Typography>
-                    <Typography sx={{ fontWeight: 500 }}>
-                      {selectedOrder.products
-                        ?.reduce((s, x) => {
-                          const xPrice = x.price ?? (typeof x.productId === "object" ? x.productId?.price : undefined) ?? 0;
-                          return s + xPrice * x.quantity;
-                        }, 0)
-                        .toLocaleString()}{" "}
-                      ₫
-                    </Typography>
-                  </Box>
-                  <Divider />
-                  <Box display="flex" justifyContent="space-between" sx={{ fontWeight: 600, fontSize: "1.1rem" }}>
-                    <Typography>Tổng thanh toán:</Typography>
-                    <Typography sx={{ color: "#d32f2f" }}>
-                      {(selectedOrder.totalAmount ??
-                        selectedOrder.products?.reduce((s, x) => {
-                          const xPrice = x.price ?? (typeof x.productId === "object" ? x.productId?.price : undefined) ?? 0;
-                          return s + xPrice * x.quantity;
-                        }, 0) ??
-                        0).toLocaleString()}{" "}
-                      ₫
-                    </Typography>
-                  </Box>
-                  <Box display="flex" justifyContent="space-between" sx={{ pt: 1 }}>
-                    <Typography variant="caption" color="text.secondary">
-                      Trạng thái:
-                    </Typography>
-                    <Chip
-                      label={getStatusLabel(selectedOrder.status ?? "pending")}
-                      color={getStatusColor(selectedOrder.status ?? "pending")}
-                      size="small"
-                    />
-                  </Box>
+                  <InfoRow label="Tiền hàng" value={currencyFormatter.format(selectedOrder.products?.reduce((s, x) => {
+                    const price = x.price ?? (typeof x.productId === "object" ? x.productId?.price : undefined) ?? 0;
+                    return s + price * x.quantity;
+                  }, 0) ?? 0)} />
+                  <Divider sx={{ borderColor: "rgba(37,99,235,0.2)" }} />
+                  <InfoRow label="Tổng thanh toán" value={currencyFormatter.format(selectedOrder.totalAmount ?? 0)} highlight />
+                  <InfoRow label="Trạng thái" value={getStatusLabel(selectedOrder.status ?? "pending")} />
                 </Stack>
-              </Paper>
+              </Section>
             </Box>
-          ) : null}
-        </DialogContent>
-        <DialogActions sx={{ p: 2, gap: 1 }}>
-          {selectedOrder && (
-            <>
-              <Box sx={{ flex: 1 }} />
-              {/* Special case: confirm payment for payment_pending orders */}
-              {selectedOrder.status === "payment_pending" && (
+
+            <Box sx={{ p: 3, borderTop: "1px solid rgba(37,99,235,0.2)", display: "flex", gap: 1, flexWrap: "wrap" }}>
+              {isAwaitingPayment(selectedOrder.status) && (
                 <Button
                   onClick={async () => {
                     try {
@@ -479,40 +593,144 @@ export default function SellerOrders() {
                   }}
                   variant="contained"
                   color="success"
-                  size="small"
                 >
-                  ✓ Xác nhận thanh toán
+                  Xác nhận thanh toán
                 </Button>
               )}
-              {/* Show valid next status buttons */}
               {getAllowedNextStatuses(selectedOrder.status).map((nextStatus) => {
-                const buttonConfig: Record<string, { label: string; color: "warning" | "info" | "error" | "success" }> = {
-                  payment_pending: { label: "Chờ xác nhận thanh toán", color: "info" },
+                const buttonConfig: Record<string, { label: string; color: ButtonProps["color"] }> = {
+                  awaiting_shipment: { label: "Đã chuẩn bị hàng", color: "info" },
                   processing: { label: "Đang xử lý", color: "info" },
                   shipping: { label: "Đang giao", color: "warning" },
                   completed: { label: "Hoàn thành", color: "success" },
                   cancelled: { label: "Hủy đơn", color: "error" },
                 };
-                const config = buttonConfig[nextStatus];
+                const config = buttonConfig[nextStatus] ?? { label: getStatusLabel(nextStatus), color: getStatusMuiColor(nextStatus) as ButtonProps["color"] };
                 return (
-                  <Button
-                    key={nextStatus}
-                    onClick={() => handleUpdateOrderStatus(nextStatus)}
-                    variant="contained"
-                    color={config.color}
-                    size="small"
-                  >
+                  <Button key={nextStatus} variant="contained" color={config.color} onClick={() => handleUpdateOrderStatus(nextStatus)}>
                     {config.label}
                   </Button>
                 );
               })}
-            </>
-          )}
-          <Button onClick={() => setSelectedOrder(null)} variant="outlined">
-            Đóng
-          </Button>
-        </DialogActions>
-      </Dialog>
+              <Button variant="outlined" onClick={closeDrawer} sx={{ ml: "auto", borderColor: "rgba(37,99,235,0.4)", color: "#2563eb" }}>
+                Đóng
+              </Button>
+            </Box>
+          </Box>
+        )}
+      </Drawer>
+    </Box>
+  );
+}
+
+type GridStatsProps = {
+  stats: SellerStats;
+  formatter: Intl.NumberFormat;
+};
+
+function GridStats({ stats, formatter }: GridStatsProps) {
+  const items = [
+    {
+      title: "Tổng sản phẩm",
+      value: stats.totalProducts.toLocaleString("vi-VN"),
+      icon: <PendingActionsOutlinedIcon sx={{ color: "#38bdf8" }} />,
+      color: "#0ea5e9",
+    },
+    {
+      title: "Số đơn hàng",
+      value: stats.totalSales.toLocaleString("vi-VN"),
+      icon: <LocalShippingOutlinedIcon sx={{ color: "#34d399" }} />,
+      color: "#34d399",
+    },
+    {
+      title: "Doanh thu 30 ngày",
+      value: formatter.format(stats.revenueLastMonth),
+      icon: <MonetizationOnOutlinedIcon sx={{ color: "#fbbf24" }} />,
+      color: "#fbbf24",
+    },
+    {
+      title: "Doanh thu tích luỹ",
+      value: formatter.format(stats.totalRevenue),
+      icon: <TrendingUpRoundedIcon sx={{ color: "#a855f7" }} />,
+      color: "#a855f7",
+    },
+    {
+      title: "Hoàn thành",
+      value: stats.completedCount,
+      icon: <CheckCircleOutlineRoundedIcon sx={{ color: "#22c55e" }} />,
+      color: "#22c55e",
+    },
+    {
+      title: "Đang chờ",
+      value: stats.pendingCount,
+      icon: <PendingActionsOutlinedIcon sx={{ color: "#f97316" }} />,
+      color: "#f97316",
+    },
+    {
+      title: "Bị hủy",
+      value: stats.cancelledCount,
+      icon: <CancelOutlinedIcon sx={{ color: "#f87171" }} />,
+      color: "#f87171",
+    },
+  ];
+
+  return (
+    <Stack direction={{ xs: "column", md: "row" }} flexWrap="wrap" gap={2} mt={3}>
+      {items.map((item) => (
+        <Card
+          key={item.title}
+          sx={{
+            flex: "1 1 240px",
+            background: "#ffffff",
+            border: "1px solid rgba(37,99,235,0.18)",
+            boxShadow: "0 15px 30px -12px rgba(37,99,235,0.2)",
+          }}
+        >
+          <CardContent>
+            <Stack direction="row" spacing={2} alignItems="center">
+              <Box sx={{ p: 1.5, borderRadius: 2, background: `${item.color}22` }}>{item.icon}</Box>
+              <Box>
+                <Typography variant="body2" sx={{ color: "#2563eb" }}>
+                  {item.title}
+                </Typography>
+                <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                  {item.value}
+                </Typography>
+              </Box>
+            </Stack>
+          </CardContent>
+        </Card>
+      ))}
+    </Stack>
+  );
+}
+
+type InfoRowProps = { label: string; value: string; highlight?: boolean };
+
+function InfoRow({ label, value, highlight }: InfoRowProps) {
+  return (
+    <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2 }}>
+      <Typography variant="body2" sx={{ color: "#2563eb" }}>
+        {label}
+      </Typography>
+      <Typography sx={{ fontWeight: highlight ? 700 : 500, color: highlight ? "#2563eb" : "#0f172a", textAlign: "right" }}>
+        {value}
+      </Typography>
+    </Box>
+  );
+}
+
+type SectionProps = { title: string; children: ReactNode };
+
+function Section({ title, children }: SectionProps) {
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: "#2563eb" }}>
+        {title}
+      </Typography>
+      <Box sx={{ background: "rgba(219,234,254,0.55)", border: "1px solid rgba(37,99,235,0.2)", borderRadius: 2, p: 2 }}>
+        {children}
+      </Box>
     </Box>
   );
 }

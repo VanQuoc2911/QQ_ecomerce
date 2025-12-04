@@ -1,15 +1,25 @@
+/* eslint-disable no-useless-escape */
+import AllInboxOutlinedIcon from '@mui/icons-material/AllInboxOutlined';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ExploreOutlinedIcon from '@mui/icons-material/ExploreOutlined';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import LayersOutlinedIcon from '@mui/icons-material/LayersOutlined';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import LocalShippingOutlinedIcon from '@mui/icons-material/LocalShippingOutlined';
+import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PaymentOutlinedIcon from '@mui/icons-material/PaymentOutlined';
+import PublicIcon from '@mui/icons-material/Public';
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
+import SatelliteAltOutlinedIcon from '@mui/icons-material/SatelliteAltOutlined';
+import SavingsOutlinedIcon from '@mui/icons-material/SavingsOutlined';
 import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
 import {
+  Alert,
   Avatar,
   Box,
   Button,
-  Card,
-  CardContent,
   Checkbox,
   Chip,
   CircularProgress,
@@ -21,6 +31,7 @@ import {
   Divider,
   FormControl,
   FormControlLabel,
+  IconButton,
   InputLabel,
   MenuItem,
   Paper,
@@ -29,12 +40,14 @@ import {
   Select,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
-import IconButton from '@mui/material/IconButton';
 import LinearProgress from "@mui/material/LinearProgress";
+import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
@@ -57,7 +70,6 @@ import {
 } from "../../utils/shippingFee";
 
 const AI_IMAGE_ENDPOINT = "https://image.pollinations.ai/prompt/";
-
 interface CheckoutItem {
   productId: {
     _id: string;
@@ -90,6 +102,198 @@ const SHIPPING_METHOD_OPTIONS: Array<{
   { value: "express", title: "Nhanh", badge: "24-48h", badgeColor: "info" },
   { value: "rush", title: "Hỏa tốc", badge: "Trong ngày", badgeColor: "warning" },
 ];
+
+const PLACE_TYPE_LABELS: Record<string, string> = {
+  restaurant: "Nhà hàng",
+  cafe: "Quán cà phê",
+  fast_food: "Đồ ăn nhanh",
+  bar: "Quán bar",
+  pub: "Pub",
+  shop: "Cửa hàng",
+  supermarket: "Siêu thị",
+  convenience: "Cửa hàng tiện lợi",
+  pharmacy: "Hiệu thuốc",
+  bakery: "Tiệm bánh",
+  beauty: "Làm đẹp",
+  hairdresser: "Tiệm tóc",
+  fashion: "Thời trang",
+  electronics: "Điện máy",
+  kiosk: "Ki-ốt",
+};
+
+const prettifyPlaceType = (raw?: string) => {
+  if (!raw) return undefined;
+  const normalized = raw.toLowerCase();
+  return PLACE_TYPE_LABELS[normalized] ?? raw.replace(/_/g, " ");
+};
+
+const buildAddressLineFromTags = (tags?: Record<string, string>) => {
+  if (!tags) return undefined;
+  const street = tags["addr:street"] || tags.street;
+  const house = tags["addr:housenumber"];
+  const combinedStreet = house && street ? `${house} ${street}` : street;
+  // Only include fine-grained parts suitable for the 'detail' field: house/street/suburb.
+  // Exclude district/city/state/province to avoid duplication in the "Địa chỉ cụ thể" field.
+  const layers = [combinedStreet, tags["addr:suburb"], tags["addr:place"]]
+    .filter(Boolean)
+    .map((part) => String(part));
+  if (layers.length > 0) {
+    return layers.join(", ");
+  }
+  return tags["addr:full"] || tags["addr:place"] || undefined;
+};
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Remove province/district/ward names from a detail string to keep 'Địa chỉ cụ thể' concise
+const sanitizeDetail = (raw?: string | null, province?: string, district?: string, ward?: string) => {
+  if (!raw) return raw ?? undefined;
+  let out = String(raw);
+  const parts = [ward, district, province].filter(Boolean).map(String);
+  for (const p of parts) {
+    try {
+      const re = new RegExp(`\\s*,?\\s*${escapeRegExp(p)}\\s*,?\\s*`, "gi");
+      out = out.replace(re, ", ");
+    } catch {
+      // ignore
+    }
+  }
+  // Strip common country names (e.g., 'Việt Nam', 'Vietnam', 'VN') to keep the detail concise
+  const countries = ['Việt Nam', 'Viet Nam', 'Vietnam', 'VN', 'ViệtNam', 'Cộng hòa xã hội chủ nghĩa Việt Nam'];
+  for (const c of countries) {
+    try {
+      const reC = new RegExp(`\s*,?\s*${escapeRegExp(c)}\s*,?\s*`, "gi");
+      out = out.replace(reC, ", ");
+    } catch {
+      // ignore
+    }
+  }
+  // Remove generic province/city phrases like 'Thành phố X', 'TP. X', 'Tỉnh X'
+  try {
+    out = out.replace(/\b(thành phố|thanh pho|tp\.?|tinh|tỉnh)\s+[^,;]+/gi, "");
+  } catch {
+    // ignore
+  }
+  // Remove a short list of common province/city names that might appear standalone
+  const provinces = ['Thành phố Hồ Chí Minh', 'Hồ Chí Minh', 'Ho Chi Minh', 'TP Hồ Chí Minh', 'HCM', 'Hà Nội', 'Ha Noi', 'Đà Nẵng', 'Da Nang', 'Hải Phòng', 'Hai Phong', 'Cần Thơ', 'Can Tho'];
+  for (const p of provinces) {
+    try {
+      const reP = new RegExp(`\s*,?\s*${escapeRegExp(p)}\s*,?\s*`, "gi");
+      out = out.replace(reP, ", ");
+    } catch {
+      // ignore
+    }
+  }
+  // collapse multiple commas and trim
+  out = out.replace(/\s*,\s*,+/g, ",").replace(/^,\s*/, "").replace(/,\s*$/, "").trim();
+  return out || undefined;
+};
+
+// Ensure the specific address only contains house number, street name, and alley/hẻm when possible
+const formatSpecificAddress = (raw?: string | null) => {
+  if (!raw) return undefined;
+  const s = String(raw).trim();
+  if (!s) return undefined;
+  // split into parts by commas or dash-like separators
+  const parts = s.split(/[,;|/]+/).map(p => p.trim()).filter(Boolean);
+  // Detect Plus Code / Open Location Code (e.g., "27M4+P57") and return it as highest priority
+  const plusCodeMatch = s.match(/\b[A-Z0-9]{2,}\+[A-Z0-9]{2,}\b/i);
+  if (plusCodeMatch) return plusCodeMatch[0];
+  const keywords = /(hẻm|hem|ngõ|ngách|ngõ|đường|duong|phố|pho|lộ|hem|hẻm|alley)/i;
+  const houseNumRegex = /\b\d{1,4}(?:[/-]\d{1,4})?\b/;
+
+  const chosen: string[] = [];
+  for (const p of parts) {
+    if (keywords.test(p) || houseNumRegex.test(p)) {
+      chosen.push(p);
+    }
+    if (chosen.length >= 3) break;
+  }
+
+  if (chosen.length === 0) {
+    // fallback: take first part (which often contains street/house)
+    return parts.slice(0, 1).join(', ');
+  }
+
+  return chosen.join(', ');
+};
+
+// More detailed formatter: keep more parts (street, house, premise, sublocality, neighborhood)
+const formatDetailedAddress = (raw?: string | null, province?: string, district?: string, ward?: string) => {
+  if (!raw) return undefined;
+  const sanitized = sanitizeDetail(raw, province, district, ward) || String(raw);
+  // If a Plus Code exists, keep it as the first part
+  const plusCodeMatch = sanitized.match(/\b[A-Z0-9]{2,}\+[A-Z0-9]{2,}\b/i);
+  if (plusCodeMatch) {
+    const rest = sanitized.replace(plusCodeMatch[0], '').split(/[,;|\/]+/).map(p => p.trim()).filter(Boolean);
+    return [plusCodeMatch[0], ...rest.slice(0, 4)].join(', ');
+  }
+  const parts = sanitized.split(/[,;|\/]+/).map(p => p.trim()).filter(Boolean);
+  // Keep up to 5 parts to provide richer detail (but still avoid admin-level names due to sanitizeDetail)
+  return parts.slice(0, 5).join(', ');
+};
+
+const formatPlaceDetail = (place: { name?: string; type?: string; addressLine?: string }) => {
+  const typeLabel = prettifyPlaceType(place.type);
+  const meta = [typeLabel, place.addressLine].filter(Boolean).join(" • ");
+  if (place.name && meta) {
+    return `${place.name} – ${meta}`;
+  }
+  return place.name || meta || "Địa điểm gần đây";
+};
+
+const formatDistanceLabel = (distance?: number) => {
+  if (distance === undefined || Number.isNaN(distance)) return null;
+  if (distance >= 1000) {
+    return `${(distance / 1000).toFixed(1)} km`;
+  }
+  return `${Math.round(distance)} m`;
+};
+
+type GoogleAddressResult = {
+  formatted?: string;
+  specificDetail?: string;
+  plusCode?: string;
+  raw?: unknown;
+  components?: Array<{ long_name?: string; short_name?: string; types?: string[] }>;
+};
+
+const buildGoogleSpecificDetail = (components: Array<{ long_name?: string; short_name?: string; types?: string[] }>, rawFormatted?: string) => {
+  const find = (type: string) => components.find((c) => Array.isArray(c.types) && c.types.includes(type));
+  const pickName = (type: string) => find(type)?.long_name || find(type)?.short_name;
+  const premise = pickName('premise') || pickName('point_of_interest') || pickName('establishment');
+  const subPremise = pickName('subpremise');
+  const streetNumber = pickName('street_number');
+  const route = pickName('route') || pickName('street_address');
+  const alley = pickName('sublocality_level_3') || pickName('sublocality_level_2');
+  const neighborhood = pickName('neighborhood') || pickName('sublocality_level_1');
+
+  const detailParts = [
+    subPremise,
+    premise,
+    alley,
+    streetNumber && route ? `${streetNumber} ${route}` : undefined,
+    !streetNumber && route ? route : undefined,
+    neighborhood,
+  ].filter(Boolean);
+
+  if (detailParts.length === 0) {
+    return rawFormatted;
+  }
+
+  const unique = Array.from(new Set(detailParts));
+  return unique.join(', ');
+};
+
+type NearbyPlace = {
+  id: string;
+  name?: string;
+  type?: string;
+  lat: number;
+  lng: number;
+  distance?: number;
+  addressLine?: string;
+};
 
 interface CheckoutPayload {
   userId: string;
@@ -135,6 +339,7 @@ export default function CheckoutPage() {
   const [manualVoucherError, setManualVoucherError] = useState<string | null>(null);
   const selectedVoucherCode = selectedVoucher?.code ?? null;
   const voucherDiscount = selectedVoucher?.discount ?? 0;
+  const freeShippingVoucherApplied = Boolean(selectedVoucher?.freeShipping);
 
   const formatCurrency = useCallback((value: number) => `${value.toLocaleString("vi-VN")}₫`, []);
   const formatDate = useCallback((value?: string | null) => {
@@ -163,6 +368,10 @@ export default function CheckoutPage() {
     (voucher?: Partial<UserVoucher>) => {
       if (!voucher) return "";
       const segments: string[] = [];
+
+      if (voucher.freeShipping) {
+        segments.push("Voucher freeship: QQ Commerce sẽ chi trả toàn bộ phí vận chuyển cho đơn đáp ứng điều kiện.");
+      }
 
       switch (voucher.targetType) {
         case "category":
@@ -205,9 +414,15 @@ export default function CheckoutPage() {
   const toastEnabled = false; // set to true to re-enable toasts
   useEffect(() => {
     if (!toastEnabled) {
-      // mute common toast methods
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const t = toast as any;
+      // mute common toast methods using a narrow type to avoid `any`
+      type MuteableToast = {
+        info: (...args: unknown[]) => void;
+        success: (...args: unknown[]) => void;
+        error: (...args: unknown[]) => void;
+        warn: (...args: unknown[]) => void;
+        warning: (...args: unknown[]) => void;
+      };
+      const t = toast as unknown as MuteableToast;
       t.info = () => {};
       t.success = () => {};
       t.error = () => {};
@@ -386,6 +601,9 @@ export default function CheckoutPage() {
     isDefault: false,
   });
 
+  // Toggle: if true, produce a more detailed 'Địa chỉ cụ thể' (more parts kept)
+  const [detailedAddressMode] = useState<boolean>(false);
+
   const sellerShippingContext = useMemo<SellerShippingContext[]>(() => {
     if (!items.length) return [];
     const grouped = new Map<string, SellerShippingContext>();
@@ -472,15 +690,21 @@ export default function CheckoutPage() {
     (option) => option.value === shippingMethod,
   );
   const shippingMethodTitle = currentShippingOption?.title ?? shippingMethod;
+  const shippingMethodDescription = describeShippingMethod(shippingMethod);
   const requiresAddressForShipping =
     (shippingMethod === "standard" || shippingMethod === "express") &&
     !(shippingDestination?.province ||
       (shippingDestination?.lat != null && shippingDestination?.lng != null));
+  const shippingDiscount =
+    freeShippingVoucherApplied && !requiresAddressForShipping ? shippingFee : 0;
+  const effectiveShippingFee = Math.max(0, shippingFee - shippingDiscount);
   const shippingFeeLabel = requiresAddressForShipping
     ? "Chưa xác định"
-    : shippingFee > 0
-      ? formatCurrency(shippingFee)
-      : "Miễn phí";
+    : effectiveShippingFee > 0
+      ? formatCurrency(effectiveShippingFee)
+      : freeShippingVoucherApplied
+        ? "Được freeship"
+        : "Miễn phí";
   const rushDistanceOverride =
     shippingMethod === "rush"
       ? shippingSummary.breakdown.find(
@@ -489,9 +713,73 @@ export default function CheckoutPage() {
       : undefined;
 
   const finalTotal = useMemo(
-    () => Math.max(0, totalPrice + shippingFee - voucherDiscount),
-    [totalPrice, voucherDiscount, shippingFee],
+    () => Math.max(0, totalPrice + effectiveShippingFee - voucherDiscount),
+    [totalPrice, voucherDiscount, effectiveShippingFee],
   );
+
+  const cartItemCount = items.length;
+  const totalQuantity = useMemo(() => items.reduce((acc, item) => acc + item.quantity, 0), [items]);
+  const FREE_SHIPPING_THRESHOLD = 500000;
+  const amountToFreeShipping = Math.max(0, FREE_SHIPPING_THRESHOLD - finalTotal);
+  const shippingProgress = freeShippingVoucherApplied ? 100 : Math.min(100, (finalTotal / FREE_SHIPPING_THRESHOLD) * 100);
+  const freeShippingMessage = freeShippingVoucherApplied
+    ? `Voucher ${selectedVoucher?.code ?? "FREESHIP"} đang miễn toàn bộ phí vận chuyển cho đơn này.`
+    : finalTotal >= FREE_SHIPPING_THRESHOLD
+      ? "Bạn đã đủ điều kiện miễn phí vận chuyển cho đơn này."
+      : `Mua thêm ${formatCurrency(amountToFreeShipping)} để đạt ưu đãi miễn phí ship.`;
+
+  const voucherValueDisplay = (() => {
+    if (!selectedVoucher) return "Chưa áp dụng";
+    if (selectedVoucher.freeShipping) {
+      if (requiresAddressForShipping) return "Freeship (chờ địa chỉ)";
+      return shippingDiscount > 0 ? `-${formatCurrency(shippingDiscount)}` : "Freeship";
+    }
+    return `-${formatCurrency(voucherDiscount)}`;
+  })();
+  const voucherCaption = selectedVoucher
+    ? selectedVoucher.freeShipping
+      ? shippingDiscount > 0
+        ? `Tiết kiệm phí ship ${formatCurrency(shippingDiscount)}`
+        : "Sẽ miễn phí khi có địa chỉ"
+      : selectedVoucher.code
+    : "Thêm voucher để tiết kiệm";
+
+  const heroStats = [
+    {
+      label: "Sản phẩm",
+      value: cartItemCount,
+      caption: `${items.length} mặt hàng trong giỏ`,
+      icon: ShoppingBagOutlinedIcon,
+      color: "#f97316",
+    },
+    {
+      label: "Số lượng",
+      value: totalQuantity,
+      caption: "Tổng số sản phẩm",
+      icon: AllInboxOutlinedIcon,
+      color: "#14b8a6",
+    },
+    {
+      label: "Ưu đãi",
+      value: voucherValueDisplay,
+      caption: voucherCaption,
+      icon: SavingsOutlinedIcon,
+      color: "#facc15",
+    },
+    {
+      label: "Vận chuyển",
+      value: requiresAddressForShipping ? "Chờ địa chỉ" : shippingFeeLabel,
+      caption: shippingMethodTitle,
+      icon: LocalShippingOutlinedIcon,
+      color: "#38bdf8",
+    },
+  ];
+
+  const checkoutSteps: Array<{ label: string; status: "done" | "current" | "next" }> = [
+    { label: "Giỏ hàng", status: "done" },
+    { label: "Thông tin & vận chuyển", status: "current" },
+    { label: "Thanh toán", status: "next" },
+  ];
 
   const [provinces, setProvinces] = useState<string[]>([]);
   const [districts, setDistricts] = useState<string[]>([]);
@@ -500,9 +788,30 @@ export default function CheckoutPage() {
   const [coordLat, setCoordLat] = useState<string>(addressForm.lat ? String(addressForm.lat) : "");
   const [coordLng, setCoordLng] = useState<string>(addressForm.lng ? String(addressForm.lng) : "");
   const [useRawCoords, setUseRawCoords] = useState<boolean>(false);
-  const [nearbyPlaces, setNearbyPlaces] = useState<Array<{ id: string; name?: string; type?: string; lat: number; lng: number }>>([]);
+  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
   const [loadingNearby, setLoadingNearby] = useState(false);
   const [nearbyRadius, setNearbyRadius] = useState<number>(500);
+  const [mapStyle, setMapStyle] = useState<"m" | "y" | "s">("m");
+  const [dialogMapStyle, setDialogMapStyle] = useState<"m" | "y" | "s">("m");
+  const [googleFullAddress, setGoogleFullAddress] = useState<string>("");
+
+  const mapLayerOptions = useMemo(
+    () => [
+      { value: "m" as const, label: "Đường", icon: <MapOutlinedIcon fontSize="small" /> },
+      { value: "y" as const, label: "Hybrid", icon: <LayersOutlinedIcon fontSize="small" /> },
+      { value: "s" as const, label: "Vệ tinh", icon: <SatelliteAltOutlinedIcon fontSize="small" /> },
+    ],
+    []
+  );
+
+  const fancyPinIcon = useMemo(() => {
+    const pinHtml = `
+      <div style="position:relative;display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-80%);">
+        <div style="width:26px;height:26px;border-radius:14px;border:3px solid #fff;background:linear-gradient(140deg,#ec4899,#8b5cf6);box-shadow:0 10px 24px rgba(99,102,241,0.45);"></div>
+        <div style="width:10px;height:10px;border-radius:999px;margin-top:4px;background:rgba(236,72,153,0.35);box-shadow:0 0 15px rgba(236,72,153,0.6);"></div>
+      </div>`;
+    return L.divIcon({ html: pinHtml, className: "", iconSize: [32, 42], iconAnchor: [16, 32] });
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -590,6 +899,16 @@ export default function CheckoutPage() {
     }
   }, [selectedAddressId, addresses]);
 
+  const googleMapsKey =
+    import.meta.env.VITE_GOOGLE_MAPS_KEY ||
+    import.meta.env.REACT_APP_GOOGLE_MAPS_KEY ||
+    "";
+
+  const buildGoogleTileUrl = (style = "m") => {
+    const suffix = googleMapsKey ? `&key=${googleMapsKey}` : "";
+    return `https://mt1.google.com/vt/lyrs=${style}&x={x}&y={y}&z={z}${suffix}`;
+  };
+
   function LocationMarker() {
     useMapEvents({
       click(e) {
@@ -605,9 +924,11 @@ export default function CheckoutPage() {
             const result = await addressService.reverseGeocode(lat, lng);
             console.debug("[reverseGeocode] click result:", result);
             if (result) {
-              await applyMatchedLocation(result.province, result.district, result.ward, result.detail, lat, lng);
+              // When user clicks on the map to pin a location, DO NOT overwrite province/district/ward
+              await applyMatchedLocation(result.province, result.district, result.ward, result.detail, lat, lng, false);
               toast.info("ℹ️ Bạn có thể tiếp tục thay đổi vị trí hoặc click 'Hoàn thành'");
             }
+            await autofillDetailFromGoogle(lat, lng);
             // fetch nearby POIs for user convenience
             void fetchNearbyPlaces(lat, lng, nearbyRadius);
           } catch (err) {
@@ -617,7 +938,9 @@ export default function CheckoutPage() {
         })();
       },
     });
-    return addressForm.lat && addressForm.lng ? <Marker position={[addressForm.lat, addressForm.lng]} /> : null;
+    return addressForm.lat && addressForm.lng ? (
+      <Marker position={[addressForm.lat, addressForm.lng]} icon={fancyPinIcon} />
+    ) : null;
   }
 
   function DraggablePin() {
@@ -637,6 +960,7 @@ export default function CheckoutPage() {
       <Marker
         position={pos}
         draggable
+        icon={fancyPinIcon}
         eventHandlers={{
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           dragend(e: any) {
@@ -647,6 +971,7 @@ export default function CheckoutPage() {
             setCoordLng(String(lng));
             toast.success("✅ Đã cập nhật vị trí ghim");
             void fetchNearbyPlaces(lat, lng, nearbyRadius);
+            void autofillDetailFromGoogle(lat, lng);
           },
         }}
       />
@@ -694,17 +1019,18 @@ export default function CheckoutPage() {
       };
 
       type RawElem = Record<string, unknown>;
-      type PlaceWithDistance = { id: string; name?: string; type?: string; lat: number; lng: number; distance: number };
+      type PlaceWithDistance = { id: string; name?: string; type?: string; lat: number; lng: number; distance: number; addressLine?: string };
 
       const places: PlaceWithDistance[] = elems
         .map((el: RawElem) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const e = el as any;
-          const latP = e.lat ?? e.center?.lat ?? null;
-          const lngP = e.lon ?? e.center?.lon ?? null;
-          const name = e.tags && (e.tags.name || e.tags.shop || e.tags.amenity) ? (e.tags.name || e.tags.shop || e.tags.amenity) : undefined;
-          const type = e.tags && (e.tags.shop || e.tags.amenity) ? (e.tags.shop || e.tags.amenity) : undefined;
-          const id = `${e.type || 'node'}_${e.id}`;
+          const e = el as RawElem;
+          const center = (e["center"] as Record<string, unknown> | undefined) ?? undefined;
+          const latP = (e["lat"] as number | string | undefined) ?? (center ? (center["lat"] as number | string | undefined) : undefined) ?? null;
+          const lngP = (e["lon"] as number | string | undefined) ?? (center ? (center["lon"] as number | string | undefined) : undefined) ?? null;
+          const tags = (e["tags"] as Record<string, string> | undefined) ?? {};
+          const name = tags && (tags.name || tags.shop || tags.amenity) ? (tags.name || tags.shop || tags.amenity) : undefined;
+          const type = tags && (tags.shop || tags.amenity) ? (tags.shop || tags.amenity) : undefined;
+          const id = `${(e["type"] as string) || "node"}_${String(e["id"] ?? "")}`;
           return {
             id,
             name,
@@ -712,12 +1038,13 @@ export default function CheckoutPage() {
             lat: Number(latP),
             lng: Number(lngP),
             distance: latP && lngP ? haversine(lat, lng, Number(latP), Number(lngP)) : Infinity,
+            addressLine: buildAddressLineFromTags(tags),
           };
         })
         .filter((p: PlaceWithDistance | undefined): p is PlaceWithDistance => !!p && Number.isFinite(p.lat) && Number.isFinite(p.lng));
 
       places.sort((a: PlaceWithDistance, b: PlaceWithDistance) => (a.distance || 0) - (b.distance || 0));
-      setNearbyPlaces(places.map((p: PlaceWithDistance) => ({ id: p.id, name: p.name, type: p.type, lat: p.lat, lng: p.lng })));
+      setNearbyPlaces(places.map((p: PlaceWithDistance) => ({ id: p.id, name: p.name, type: p.type, lat: p.lat, lng: p.lng, distance: p.distance, addressLine: p.addressLine })));
     } catch (err) {
       console.error('fetchNearbyPlaces failed', err);
       toast.error('❌ Không thể tìm địa điểm gần đây');
@@ -725,6 +1052,43 @@ export default function CheckoutPage() {
       setLoadingNearby(false);
     }
   };
+
+  const handleApplyNearbyPlace = (place: NearbyPlace) => {
+    // Prefer OSM-derived addressLine (street/premise/sublocality). Format to specific house/street/alley or detailed depending on toggle.
+    const candidate = place.addressLine || place.name || formatPlaceDetail(place);
+    const detail = (detailedAddressMode ? formatDetailedAddress(candidate) : formatSpecificAddress(candidate)) || (place.addressLine || place.name || formatPlaceDetail(place));
+    setAddressForm((a) => ({ ...a, detail, lat: place.lat, lng: place.lng, isPinned: true }));
+    setGoogleFullAddress("");
+    setCoordLat(String(place.lat));
+    setCoordLng(String(place.lng));
+    setSelectedAddressId("new");
+    toast.success(`✅ Đã chọn ${detail}`);
+  };
+
+  const handlePreviewNearbyPlace = (place: NearbyPlace) => {
+    const detail = formatPlaceDetail(place);
+    setAddressForm((a) => ({ ...a, lat: place.lat, lng: place.lng, isPinned: true }));
+    setCoordLat(String(place.lat));
+    setCoordLng(String(place.lng));
+    toast.info(`🔎 Đã di chuyển tới ${detail}`);
+  };
+
+  const copyGoogleAddress = useCallback(async () => {
+    if (!googleFullAddress) {
+      toast.info('Chưa có địa chỉ Google để sao chép');
+      return;
+    }
+    try {
+      if (typeof navigator === 'undefined' || !navigator.clipboard) {
+        throw new Error('Clipboard API unavailable');
+      }
+      await navigator.clipboard.writeText(googleFullAddress);
+      toast.success('Đã sao chép địa chỉ Google Maps');
+    } catch (err) {
+      console.error('copy google address failed', err);
+      toast.error('Không thể sao chép địa chỉ Google');
+    }
+  }, [googleFullAddress]);
 
   // Forward geocode helper (Nominatim) - usable by button or auto-search
   const geocodeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -761,7 +1125,7 @@ export default function CheckoutPage() {
 
   // Auto-search when address details change (debounced)
   useEffect(() => {
-    const parts = [addressForm.detail, addressForm.ward, addressForm.district, addressForm.province].filter(Boolean).join(', ');
+    const parts = [addressForm.detail, addressForm.ward, addressForm.district].filter(Boolean).join(', ');
     if (geocodeTimerRef.current) clearTimeout(geocodeTimerRef.current);
     if (!parts) return;
     geocodeTimerRef.current = setTimeout(() => {
@@ -779,18 +1143,52 @@ export default function CheckoutPage() {
     geocodedWard: string,
     detail: string,
     lat?: number,
-    lng?: number
+    lng?: number,
+    updateAdminFields = true,
   ) => {
     try {
       console.debug("[Geocoded]", { province: geocodedProvince, district: geocodedDistrict, ward: geocodedWard });
       
       if (!geocodedProvince && !geocodedDistrict && !geocodedWard) {
         console.log("[applyMatchedLocation] Coordinate-only response, updating detail only");
+        const sanitized = sanitizeDetail(detail, geocodedProvince, geocodedDistrict, geocodedWard);
+        const specific = (detailedAddressMode
+          ? formatDetailedAddress(sanitized || detail, geocodedProvince, geocodedDistrict, geocodedWard)
+          : formatSpecificAddress(sanitized || detail)
+        );
         setAddressForm((a) => ({
           ...a,
-          detail: detail || `Vị trí: ${a.lat?.toFixed(4)}, ${a.lng?.toFixed(4)}`,
+          detail: specific || sanitized || detail || `Vị trí: ${a.lat?.toFixed(4)}, ${a.lng?.toFixed(4)}`,
+          lat: typeof lat === "number" ? lat : a.lat,
+          lng: typeof lng === "number" ? lng : a.lng,
+          isPinned: !!(typeof lat === "number" ? lat : a.lat) && !!(typeof lng === "number" ? lng : a.lng),
         }));
+        setGoogleFullAddress("");
+        setCoordLat(typeof lat === "number" ? String(lat) : addressForm.lat ? String(addressForm.lat) : "");
+        setCoordLng(typeof lng === "number" ? String(lng) : addressForm.lng ? String(addressForm.lng) : "");
         toast.info("ℹ️ Không thể xác định tỉnh/quận/phường. Vui lòng chọn thủ công từ danh sách.");
+        return;
+      }
+
+      // If caller doesn't want admin fields changed (map pin / GPS pinning), only update detail/coords
+      if (!updateAdminFields) {
+        const sanitized = sanitizeDetail(detail, geocodedProvince, geocodedDistrict, geocodedWard);
+        const specific = (detailedAddressMode
+          ? formatDetailedAddress(sanitized || detail, geocodedProvince, geocodedDistrict, geocodedWard)
+          : formatSpecificAddress(sanitized || detail)
+        );
+        setAddressForm((a) => ({
+          ...a,
+          detail: specific || sanitized || detail || a.detail || `Vị trí: ${a.lat?.toFixed(4)}, ${a.lng?.toFixed(4)}`,
+          lat: typeof lat === "number" ? lat : a.lat,
+          lng: typeof lng === "number" ? lng : a.lng,
+          isPinned: !!(typeof lat === "number" ? lat : a.lat) && !!(typeof lng === "number" ? lng : a.lng),
+        }));
+        setGoogleFullAddress("");
+        setCoordLat(typeof lat === "number" ? String(lat) : addressForm.lat ? String(addressForm.lat) : "");
+        setCoordLng(typeof lng === "number" ? String(lng) : addressForm.lng ? String(addressForm.lng) : "");
+        setSelectedAddressId("new");
+        toast.info("ℹ️ Đã cập nhật mô tả địa chỉ và toạ độ (không thay đổi Tỉnh/Quận/Phường)");
         return;
       }
 
@@ -808,6 +1206,11 @@ export default function CheckoutPage() {
         setWards(wardsList);
       }
 
+      const sanitized = sanitizeDetail(detail, matched.province || geocodedProvince, matched.district || geocodedDistrict, matched.ward || geocodedWard);
+      const specific = (detailedAddressMode
+        ? formatDetailedAddress(sanitized || detail, matched.province || geocodedProvince, matched.district || geocodedDistrict, matched.ward || geocodedWard)
+        : formatSpecificAddress(sanitized || detail)
+      );
       setAddressForm((a) => ({
         ...a,
         name: a.name || (user?.name as string) || "",
@@ -815,11 +1218,12 @@ export default function CheckoutPage() {
         province: matched.province || geocodedProvince,
         district: matched.district || geocodedDistrict,
         ward: matched.ward || geocodedWard,
-        detail: detail,
+        detail: specific || sanitized || detail,
         lat: typeof lat === "number" ? lat : a.lat,
         lng: typeof lng === "number" ? lng : a.lng,
         isPinned: !!(typeof lat === "number" ? lat : a.lat) && !!(typeof lng === "number" ? lng : a.lng),
       }));
+      setGoogleFullAddress("");
 
       setCoordLat(typeof lat === "number" ? String(lat) : addressForm.lat ? String(addressForm.lat) : "");
       setCoordLng(typeof lng === "number" ? String(lng) : addressForm.lng ? String(addressForm.lng) : "");
@@ -845,6 +1249,90 @@ export default function CheckoutPage() {
       toast.error("❌ Lỗi khi khớp địa chỉ. Vui lòng thử lại hoặc chọn thủ công.");
     }
   };
+
+  // Use Google Geocoding API to fetch a human-friendly address detail for given coords.
+  const fetchGoogleAddress = async (lat?: number, lng?: number): Promise<GoogleAddressResult | null> => {
+    if (!lat || !lng) return null;
+    const key = import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.REACT_APP_GOOGLE_MAPS_KEY || null;
+    if (!key) {
+      toast.warning('Chưa cấu hình Google Maps API key. Mở Google Maps trong tab mới.');
+      return null;
+    }
+    try {
+      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${key}&language=vi`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.status !== 'OK' || !Array.isArray(data.results) || data.results.length === 0) {
+        const status = data.status as string;
+        const apiMessage: string | undefined = data.error_message;
+        const humanMessage = (() => {
+          if (status === 'REQUEST_DENIED') {
+            return apiMessage || 'Google Maps API bị từ chối. Vui lòng kiểm tra API key hoặc bật Geocoding API.';
+          }
+          if (status === 'OVER_QUERY_LIMIT') {
+            return 'Đã vượt hạn mức Google Geocoding API. Vui lòng thử lại sau hoặc kiểm tra quota.';
+          }
+          if (status === 'ZERO_RESULTS') {
+            return 'Google Maps không tìm thấy địa chỉ cho toạ độ này.';
+          }
+          if (status === 'INVALID_REQUEST') {
+            return 'Yêu cầu Google Maps không hợp lệ. Vui lòng thử ghim lại vị trí.';
+          }
+          return apiMessage || `Google Maps trả về trạng thái ${status || 'không xác định'}.`;
+        })();
+
+        if (status === 'ZERO_RESULTS') {
+          toast.info(humanMessage);
+        } else {
+          toast.error(humanMessage);
+        }
+        console.warn('Google geocode returned no results', data);
+        return null;
+      }
+      // Prefer the most specific result (first)
+      const r = data.results[0];
+      // Build a concise detail from address_components: street_number + route + sublocality/neighborhood
+      const comp = (r.address_components || []) as Array<{ long_name?: string; short_name?: string; types?: string[] }>;
+      const specificDetail = buildGoogleSpecificDetail(comp, r.formatted_address) || undefined;
+      const plusCodeRegex = /[A-Z0-9]{4}\+[A-Z0-9]{2,3}/i;
+      const compoundCode = r.plus_code?.compound_code;
+      const compoundToken = compoundCode ? compoundCode.match(plusCodeRegex)?.[0] : undefined;
+      const globalCode = r.plus_code?.global_code;
+      const fallbackToken = globalCode ? globalCode.match(plusCodeRegex)?.[0] : undefined;
+      const plusCode = compoundToken || fallbackToken;
+      const baseFormatted = r.formatted_address || specificDetail || plusCode;
+      const displayFormatted = plusCode && baseFormatted && !baseFormatted.startsWith(plusCode)
+        ? `${plusCode}, ${baseFormatted}`
+        : baseFormatted;
+      return { formatted: displayFormatted, raw: r, components: comp, plusCode, specificDetail };
+    } catch (err) {
+      console.error('Google geocode failed', err);
+      return null;
+    }
+  };
+
+  const autofillDetailFromGoogle = useCallback(async (lat?: number, lng?: number, preset?: GoogleAddressResult | null) => {
+    if (!lat || !lng || useRawCoords) return false;
+    const googleResult = preset ?? (await fetchGoogleAddress(lat, lng));
+    if (!googleResult) return false;
+    setAddressForm((prev) => {
+      const rawDetail = googleResult.specificDetail || googleResult.formatted;
+      const sanitized = sanitizeDetail(rawDetail, prev.province, prev.district, prev.ward) || rawDetail;
+      const formattedDetail = detailedAddressMode
+        ? formatDetailedAddress(sanitized, prev.province, prev.district, prev.ward)
+        : formatSpecificAddress(sanitized);
+      const preferredDetail = googleResult.plusCode || formattedDetail || sanitized || prev.detail;
+      return {
+        ...prev,
+        detail: preferredDetail,
+        lat,
+        lng,
+        isPinned: true,
+      };
+    });
+    setGoogleFullAddress(googleResult.formatted || googleResult.raw?.formatted_address || "");
+    return true;
+  }, [detailedAddressMode, fetchGoogleAddress, useRawCoords]);
 
   const handleGetCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -880,8 +1368,10 @@ export default function CheckoutPage() {
             console.debug("[reverseGeocode] current location result:", result);
 
             if (result) {
-              await applyMatchedLocation(result.province, result.district, result.ward, result.detail, latitude, longitude);
+              // GPS pinning should not override the manual province/district/ward selections
+              await applyMatchedLocation(result.province, result.district, result.ward, result.detail, latitude, longitude, false);
             }
+            await autofillDetailFromGoogle(latitude, longitude);
             if (prevUseRaw) setUseRawCoords(true);
             // fetch nearby POIs after getting GPS
             void fetchNearbyPlaces(latitude, longitude, nearbyRadius);
@@ -944,12 +1434,14 @@ export default function CheckoutPage() {
     try {
       const result = await addressService.reverseGeocode(lat, lng);
       console.debug("[reverseGeocode] applyCoordinates result:", result);
-      if (result) {
-        await applyMatchedLocation(result.province, result.district, result.ward, result.detail, lat, lng);
-        toast.success("✅ Đã cập nhật địa chỉ từ toạ độ");
-        // fetch nearby POIs when user applies coordinates
-        void fetchNearbyPlaces(lat, lng, nearbyRadius);
-      }
+    if (result) {
+      // Applying raw coords (manual input) should update only detail/coords unless user explicitly wants admin fields changed
+      await applyMatchedLocation(result.province, result.district, result.ward, result.detail, lat, lng, false);
+      await autofillDetailFromGoogle(lat, lng);
+      toast.success("✅ Đã cập nhật địa chỉ từ toạ độ (không thay đổi Tỉnh/Quận/Phường)");
+      // fetch nearby POIs when user applies coordinates
+      void fetchNearbyPlaces(lat, lng, nearbyRadius);
+    }
     } catch (err) {
       console.error("applyCoordinates reverse geocode failed:", err);
       toast.error("❌ Lỗi khi truy xuất địa chỉ từ toạ độ");
@@ -1017,8 +1509,8 @@ export default function CheckoutPage() {
       window.location.href = link.checkoutUrl;
     } catch (err) {
       console.error("PayOS link error:", err);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const anyErr = err as any;
+      type MaybeAxiosError = { response?: { status?: number; data?: { message?: string } } };
+      const anyErr = err as unknown as MaybeAxiosError;
       if (anyErr?.response?.status === 409) {
         const srvMsg = anyErr.response?.data?.message || "Xung đột khi tạo PayOS link";
         toast.error(srvMsg, { position: "top-center", autoClose: 3000 });
@@ -1144,678 +1636,1300 @@ export default function CheckoutPage() {
   }
 
   return (
-    <Box sx={{ 
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)',
-      py: { xs: 3, md: 6 }
-    }}>
+    <>
+      <Box
+      sx={{
+        minHeight: "100vh",
+        background: "linear-gradient(180deg, #fff9f5 0%, #f3f7ff 45%, #f7fbff 100%)",
+        py: { xs: 4, md: 6 },
+        px: { xs: 2, md: 0 },
+      }}
+    >
       <Container maxWidth="lg">
-        {/* Header */}
-        <Box sx={{ mb: 4, textAlign: 'center' }}>
-          <Typography 
-            variant="h3" 
-            sx={{ 
-              fontWeight: 800,
-              color: '#1976d2',
-              mb: 1,
-              textShadow: '2px 2px 4px rgba(0,0,0,0.1)'
+        <Stack spacing={4}>
+          <Paper
+            sx={{
+              borderRadius: 5,
+              p: { xs: 3.5, md: 5 },
+              background: "linear-gradient(120deg, rgba(255,255,255,0.95), rgba(255,250,244,0.95))",
+              border: "1px solid rgba(15,23,42,0.06)",
+              boxShadow: "0 40px 90px rgba(15,23,42,0.12)",
+              position: "relative",
+              overflow: "hidden",
             }}
           >
-            Thanh Toán
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Hoàn tất đơn hàng của bạn
-          </Typography>
-        </Box>
-
-        <Grid container spacing={3}>
-          {/* Left Column - Products + Shipping */}
-          <Grid item xs={12} md={8}>
-            {/* Products (main area) */}
-            <Card elevation={3} sx={{ mb: 3, borderRadius: 3, border: '2px solid #e3f2fd' }}>
-              <Box sx={{ background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)', p: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <ShoppingBagOutlinedIcon sx={{ color: 'white', fontSize: 28 }} />
-                <Typography variant="h6" sx={{ color: 'white', fontWeight: 700 }}>Sản Phẩm</Typography>
-              </Box>
-              <CardContent sx={{ p: 3 }}>
-                <Stack spacing={2} sx={{ mb: 2 }}>
-                  {items.map(item => (
-                    <Paper key={item.productId._id} elevation={0} sx={{ p: 2, background: 'linear-gradient(135deg, #f8fbff 0%, #ffffff 100%)', border: '1px solid #e3f2fd', borderRadius: 2 }}>
-                      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                        {item.productId.images && item.productId.images[0] && (
-                          <Avatar src={item.productId.images[0]} variant="rounded" sx={{ width: 60, height: 60 }} />
-                        )}
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 0.5 }}>{item.productId.title}</Typography>
-                          <Typography variant="body2" color="text.secondary">Số lượng: {item.quantity}</Typography>
-                        </Box>
-                        <Typography variant="subtitle1" fontWeight={700} color="primary">{(item.productId.price * item.quantity).toLocaleString("vi-VN")}₫</Typography>
-                      </Box>
-                    </Paper>
+            <Box
+              sx={{
+                position: "absolute",
+                inset: 0,
+                background: "radial-gradient(circle at 20% 10%, rgba(255,144,94,0.15), transparent 45%), radial-gradient(circle at 80% 0%, rgba(99,102,241,0.12), transparent 40%)",
+              }}
+            />
+            <Stack spacing={3.5} sx={{ position: "relative", zIndex: 1 }}>
+              <Stack direction={{ xs: "column", md: "row" }} spacing={3} justifyContent="space-between">
+                <Box>
+                  <Typography variant="overline" sx={{ letterSpacing: 8, color: "#94a3b8" }}>
+                    CHECKOUT FLOW
+                  </Typography>
+                  <Typography variant="h3" fontWeight={800} sx={{ color: "#0f172a", mb: 1 }}>
+                    Hoàn thiện đơn hàng sang xịn mịn
+                  </Typography>
+                  <Typography sx={{ color: "#475569", maxWidth: 520 }}>
+                    Soát lại sản phẩm, ưu đãi và địa chỉ trước khi đặt. Tất cả các bước được gom vào một bảng điều khiển nhẹ nhàng.
+                  </Typography>
+                </Box>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems="center" flexWrap="wrap">
+                  {checkoutSteps.map((step, index) => (
+                    <Box key={step.label} sx={{ display: "flex", alignItems: "center", width: { xs: "100%", md: "auto" } }}>
+                      <Chip
+                        label={step.label}
+                        color={step.status === "done" ? "success" : step.status === "current" ? "primary" : "default"}
+                        variant={step.status === "next" ? "outlined" : "filled"}
+                        sx={{ fontWeight: 600, minWidth: 160, justifyContent: "center" }}
+                      />
+                      {index < checkoutSteps.length - 1 && (
+                        <Box
+                          sx={{
+                            flex: 1,
+                            height: 2,
+                            mx: 1,
+                            background: "rgba(15,23,42,0.12)",
+                            display: { xs: "none", md: "block" },
+                          }}
+                        />
+                      )}
+                    </Box>
                   ))}
                 </Stack>
+              </Stack>
 
-                <Stack spacing={1.5} sx={{ mb: 2 }}>
-                  <Button
-                    variant="outlined"
-                    startIcon={<LocalOfferIcon />}
-                    onClick={() => setVoucherDialogOpen(true)}
-                  >
-                    {selectedVoucher ? "Đổi voucher" : "Áp dụng voucher"}
-                  </Button>
-                  {selectedVoucher && (
-                    <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
-                      <Chip label={selectedVoucher.code} color="primary" />
-                      <Typography color="success.main" fontWeight={700}>
-                        - {formatCurrency(voucherDiscount)}
-                      </Typography>
-                      <Button size="small" color="error" onClick={handleRemoveVoucher}>
-                        Bỏ voucher
-                      </Button>
-                    </Stack>
-                  )}
-                  {voucherLoading && userVouchers.length === 0 && <LinearProgress sx={{ borderRadius: 999 }} />}
-                  {!voucherLoading && userVouchers.length > 0 && (
-                    <Stack spacing={1.5}>
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Voucher khả dụng cho đơn này
-                      </Typography>
-                      {userVouchers.slice(0, 3).map((voucher) => {
-                        const applicable = voucher.applicable !== false;
-                        const isSelected = selectedVoucherCode === voucher.code;
-                        const isApplying = applyingVoucherCode === voucher.code;
-                        return (
-                          <Paper
-                            key={voucher._id ?? voucher.code}
-                            variant="outlined"
-                            sx={{ p: 1.5, borderRadius: 2, borderColor: isSelected ? "primary.main" : undefined }}
-                          >
-                            <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
-                              <Box sx={{ flex: 1 }}>
-                                <Typography fontWeight={700}>
-                                  {voucher.code}
-                                  {isSelected && " • Đang áp dụng"}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                  {voucher.type === "percent"
-                                    ? `${voucher.value}% tối đa ${voucher.maxDiscount ? formatCurrency(voucher.maxDiscount) : "không giới hạn"}`
-                                    : `Giảm ${formatCurrency(voucher.value)}`}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  Đơn tối thiểu: {voucher.minOrderValue ? formatCurrency(voucher.minOrderValue) : "Không"} • HSD: {formatDate(voucher.expiresAt)}
-                                </Typography>
-                                <Typography variant="caption" color={applicable ? "success.main" : "error.main"} display="block">
-                                  {applicable ? "Đủ điều kiện" : voucher.reason || "Chưa đạt điều kiện"}
-                                </Typography>
-                              </Box>
-                              <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
-                                <Tooltip title="Chi tiết">
-                                  <IconButton size="small" onClick={() => showVoucherDetail(voucher)}>
-                                    <InfoOutlinedIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                                <Button
-                                  variant={isSelected ? "outlined" : "contained"}
-                                  color={applicable ? "primary" : "inherit"}
-                                  disabled={!applicable || isApplying}
-                                  onClick={() => handleApplyVoucher(voucher)}
-                                  size="small"
-                                  sx={{ minWidth: 120 }}
-                                >
-                                  {isApplying ? (
-                                    <CircularProgress size={18} sx={{ color: isSelected ? "text.primary" : "white" }} />
-                                  ) : isSelected ? (
-                                    "Đang dùng"
-                                  ) : (
-                                    "Dùng mã"
-                                  )}
-                                </Button>
-                              </Stack>
-                            </Stack>
-                          </Paper>
-                        );
-                      })}
-                      {userVouchers.length > 3 && (
-                        <Button size="small" onClick={() => setVoucherDialogOpen(true)}>
-                          Xem thêm {userVouchers.length - 3} voucher khác
-                        </Button>
-                      )}
-                    </Stack>
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
-            {/* Shipping Address Card */}
-            <Card 
-              elevation={3}
-              sx={{ 
-                mb: 3,
-                borderRadius: 3,
-                overflow: 'hidden',
-                border: '2px solid #e3f2fd'
-              }}
-            >
-              <Box sx={{ 
-                background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)',
-                p: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1
-              }}>
-                <LocalShippingOutlinedIcon sx={{ color: 'white', fontSize: 28 }} />
-                <Typography variant="h6" sx={{ color: 'white', fontWeight: 700 }}>
-                  Địa Chỉ Giao Hàng
-                </Typography>
-              </Box>
-
-              <CardContent sx={{ p: 3 }}>
-                {/* Compact shipping summary: open dialog to manage addresses */}
-                {addresses.length > 0 && selectedAddressId && selectedAddressId !== 'new' ? (
-                  (() => {
-                    const found = addresses.find(a => a.id === selectedAddressId);
-                    return found ? (
-                      <Box>
-                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                          <Typography fontWeight={700}>{found.name} • {found.phone}</Typography>
-                          {found.isDefault && <Chip label="Mặc định" size="small" color="primary" />}
-                          {found.id === selectedAddressId && <Chip label="Đã chọn" size="small" color="success" />}
-                        </Box>
-                        <Typography variant="body2" color="text.secondary">{found.detail}</Typography>
-                        <Typography variant="caption" color="text.secondary">{[found.ward, found.district, found.province].filter(Boolean).join(', ')}</Typography>
-                        <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-                          <Button variant="outlined" onClick={() => setAddressDialogOpen(true)}>Thay đổi</Button>
-                        </Box>
-                      </Box>
-                    ) : (
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Chưa chọn địa chỉ</Typography>
-                        <Button variant="outlined" sx={{ mt: 1 }} onClick={() => setAddressDialogOpen(true)}>Quản lý địa chỉ</Button>
-                      </Box>
-                    );
-                  })()
-                ) : (
-                  <Box>
-                    <Typography variant="body2" color="text.secondary">Vui lòng chọn hoặc thêm địa chỉ giao hàng</Typography>
-                    <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
-                      <Button variant="outlined" onClick={() => setAddressDialogOpen(true)}>Chọn/Thêm địa chỉ</Button>
-                    </Box>
-                  </Box>
-                )}
-
-                <Divider sx={{ my: 3 }} />
-                <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-                  Phương thức vận chuyển
-                </Typography>
-                <RadioGroup
-                  value={shippingMethod}
-                  onChange={(event) => setShippingMethod(event.target.value as ShippingMethod)}
-                >
-                  {SHIPPING_METHOD_OPTIONS.map((option) => {
-                    const isActive = option.value === shippingMethod;
-                    return (
+              <Grid container spacing={2}>
+                {heroStats.map((stat) => {
+                  const Icon = stat.icon;
+                  return (
+                    <Grid item xs={12} sm={6} md={3} key={stat.label}>
                       <Paper
-                        key={option.value}
-                        elevation={isActive ? 2 : 0}
+                        elevation={0}
                         sx={{
-                          p: 2,
-                          mb: 1.5,
-                          borderRadius: 2,
-                          border: isActive ? '2px solid #1976d2' : '1px solid #e0e0e0',
-                          transition: 'all 0.3s',
-                          '&:hover': {
-                            boxShadow: 2,
-                            borderColor: '#42a5f5',
-                          },
+                          p: 2.5,
+                          borderRadius: 3,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          background: "rgba(255,255,255,0.8)",
+                          border: "1px solid rgba(15,23,42,0.06)",
                         }}
                       >
-                        <FormControlLabel
-                          value={option.value}
-                          control={<Radio sx={{ color: '#1976d2' }} />}
-                          label={
-                            <Box>
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <Typography variant="subtitle2" fontWeight={700}>
-                                  {option.title}
-                                </Typography>
-                                <Chip label={option.badge} size="small" color={option.badgeColor} />
-                              </Stack>
-                              <Typography variant="caption" color="text.secondary">
-                                {describeShippingMethod(option.value)}
-                              </Typography>
-                            </Box>
-                          }
-                          sx={{ width: '100%', m: 0 }}
-                        />
+                        <Box
+                          sx={{
+                            width: 48,
+                            height: 48,
+                            borderRadius: 3,
+                            background: `${stat.color}22`,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: stat.color,
+                          }}
+                        >
+                          <Icon />
+                        </Box>
+                        <Box>
+                          <Typography variant="body2" sx={{ color: "#94a3b8" }}>
+                            {stat.label}
+                          </Typography>
+                          <Typography variant="h5" fontWeight={800} sx={{ color: "#0f172a" }}>
+                            {stat.value}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#64748b" }}>
+                            {stat.caption}
+                          </Typography>
+                        </Box>
                       </Paper>
-                    );
-                  })}
-                </RadioGroup>
-                <Typography
-                  variant="body2"
-                  color={requiresAddressForShipping ? 'warning.main' : 'text.secondary'}
-                  sx={{ mt: 1 }}
+                    </Grid>
+                  );
+                })}
+              </Grid>
+
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2.5}>
+                <Box
+                  sx={{
+                    flex: 1,
+                    p: { xs: 2.5, md: 3 },
+                    borderRadius: 4,
+                    background: "linear-gradient(135deg, #fff7ed, #e0f2fe)",
+                    border: "1px solid rgba(15,23,42,0.05)",
+                  }}
                 >
-                  {requiresAddressForShipping
-                    ? 'Vui lòng hoàn tất tỉnh/thành để ước tính phí cho phương thức này.'
-                    : `Ước tính phí: ${shippingFeeLabel}`}
-                </Typography>
-              </CardContent>
-            </Card>
-
-            {/* Payment Method Card */}
-            <Card 
-              elevation={3}
-              sx={{ 
-                borderRadius: 3,
-                overflow: 'hidden',
-                border: '2px solid #e3f2fd'
-              }}
-            >
-              <Box sx={{ 
-                background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)',
-                p: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1
-              }}>
-                <PaymentOutlinedIcon sx={{ color: 'white', fontSize: 28 }} />
-                <Typography variant="h6" sx={{ color: 'white', fontWeight: 700 }}>
-                  Phương Thức Thanh Toán
-                </Typography>
-              </Box>
-
-              <CardContent sx={{ p: 3 }}>
-                <RadioGroup 
-                  value={paymentMethod} 
-                  onChange={e => setPaymentMethod(e.target.value as PaymentMethod)}
-                >
-                  <Paper 
-                    elevation={paymentMethod === "payos" ? 2 : 0}
-                    sx={{ 
-                      p: 2.5, 
-                      mb: 2,
-                      border: paymentMethod === "payos" ? '2px solid #1976d2' : '1px solid #e0e0e0',
-                      borderRadius: 2,
-                      transition: 'all 0.3s',
-                      '&:hover': {
-                        boxShadow: 2,
-                        borderColor: '#42a5f5'
-                      }
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                    <Typography fontWeight={700} color="#0f172a">
+                      Ưu đãi vận chuyển
+                    </Typography>
+                    <Typography variant="caption" color="#475569">
+                      Mục tiêu {formatCurrency(FREE_SHIPPING_THRESHOLD)}
+                    </Typography>
+                  </Stack>
+                  <LinearProgress
+                    variant="determinate"
+                    value={shippingProgress}
+                    sx={{
+                      height: 12,
+                      borderRadius: 999,
+                      backgroundColor: "rgba(15,23,42,0.08)",
+                      mb: 1,
+                      "& .MuiLinearProgress-bar": {
+                        background: "linear-gradient(90deg, #fb923c, #f43f5e)",
+                      },
                     }}
-                  >
-                    <FormControlLabel 
-                      value="payos" 
-                      control={<Radio sx={{ color: '#1976d2' }} />}
-                      label={
-                        <Box>
-                          <Typography variant="subtitle1" fontWeight={600} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            ⚡ PayOS (QR / Ngân hàng)
-                            <Chip label="Nhanh chóng" size="small" color="primary" />
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Thanh toán qua mã QR hoặc liên kết ngân hàng
-                          </Typography>
-                        </Box>
-                      }
-                      sx={{ width: '100%', m: 0 }}
-                    />
-                  </Paper>
-
-                  <Paper 
-                    elevation={paymentMethod === "cod" ? 2 : 0}
-                    sx={{ 
-                      p: 2.5,
-                      border: paymentMethod === "cod" ? '2px solid #1976d2' : '1px solid #e0e0e0',
-                      borderRadius: 2,
-                      transition: 'all 0.3s',
-                      '&:hover': {
-                        boxShadow: 2,
-                        borderColor: '#42a5f5'
-                      }
-                    }}
-                  >
-                    <FormControlLabel 
-                      value="cod" 
-                      control={<Radio sx={{ color: '#1976d2' }} />}
-                      label={
-                        <Box>
-                          <Typography variant="subtitle1" fontWeight={600} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            📦 Thanh toán khi nhận hàng (COD)
-                            <Chip label="Tiện lợi" size="small" color="success" />
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Thanh toán bằng tiền mặt khi nhận hàng
-                          </Typography>
-                        </Box>
-                      }
-                      sx={{ width: '100%', m: 0 }}
-                    />
-                  </Paper>
-                </RadioGroup>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Right Column - Order Summary */}
-          <Grid item xs={12} md={4}>
-            <Card 
-              elevation={3}
-              sx={{ 
-                borderRadius: 3,
-                position: 'sticky',
-                top: 20,
-                border: '2px solid #e3f2fd'
-              }}
-            >
-              <Box sx={{ 
-                background: 'linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)',
-                p: 2,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1
-              }}>
-                <ShoppingBagOutlinedIcon sx={{ color: 'white', fontSize: 28 }} />
-                <Typography variant="h6" sx={{ color: 'white', fontWeight: 700 }}>
-                  Đơn Hàng Của Bạn
-                </Typography>
-              </Box>
-
-              <CardContent sx={{ p: 3 }}>
-                <Stack spacing={2} sx={{ mb: 3 }}>
-                  {items.map(item => (
-                    <Paper 
-                      key={item.productId._id}
-                      elevation={0}
-                      sx={{ 
-                        p: 2,
-                        background: 'linear-gradient(135deg, #f8fbff 0%, #ffffff 100%)',
-                        border: '1px solid #e3f2fd',
-                        borderRadius: 2
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
-                        {item.productId.images && item.productId.images[0] && (
-                          <Avatar
-                            src={item.productId.images[0]}
-                            variant="rounded"
-                            sx={{ width: 60, height: 60 }}
-                          />
-                        )}
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 0.5 }}>
-                            {item.productId.title}
-                          </Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Số lượng: {item.quantity}
-                          </Typography>
-                        </Box>
-                        <Typography variant="subtitle1" fontWeight={700} color="primary">
-                          {(item.productId.price * item.quantity).toLocaleString("vi-VN")}₫
-                        </Typography>
-                      </Box>
-                    </Paper>
-                  ))}
-                </Stack>
-
-                <Divider sx={{ my: 2 }} />
-
-                <Stack spacing={1.5} sx={{ mb: 3 }}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2" color="text.secondary">Tạm tính:</Typography>
-                    <Typography variant="body2" fontWeight={600}>
-                      {totalPrice.toLocaleString("vi-VN")}₫
-                    </Typography>
-                  </Box>
-                  {selectedVoucher && (
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Typography variant="body2" color="text.secondary">Voucher ({selectedVoucher.code}):</Typography>
-                      <Typography variant="body2" fontWeight={600} color="error">
-                        -{formatCurrency(voucherDiscount)}
-                      </Typography>
-                    </Box>
-                  )}
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Phí vận chuyển ({shippingMethodTitle}):
-                    </Typography>
-                    <Typography
-                      variant="body2"
-                      fontWeight={600}
-                      color={
-                        requiresAddressForShipping
-                          ? 'warning.main'
-                          : shippingFee > 0
-                            ? 'text.primary'
-                            : 'success.main'
-                      }
-                    >
-                      {requiresAddressForShipping ? 'Cập nhật địa chỉ' : shippingFeeLabel}
-                    </Typography>
-                  </Box>
-                </Stack>
-
-                <Divider sx={{ my: 2 }} />
-
-                <Box sx={{ 
-                  display: 'flex', 
-                  justifyContent: 'space-between',
-                  p: 2,
-                  background: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
-                  borderRadius: 2,
-                  mb: 3
-                }}>
-                  <Typography variant="h6" fontWeight={700}>Tổng cộng:</Typography>
-                  <Typography variant="h6" fontWeight={700} color="primary">
-                    {formatCurrency(finalTotal)}
+                  />
+                  <Typography sx={{ color: "#0f172a", fontWeight: 600 }}>
+                    {freeShippingMessage}
                   </Typography>
                 </Box>
 
-                <Button 
-                  variant="contained" 
-                  size="large" 
-                  fullWidth 
-                  onClick={handleCheckout} 
-                  disabled={processing}
+                <Box
                   sx={{
-                    py: 1.5,
-                    fontSize: '1.1rem',
-                    fontWeight: 700,
-                    background: processing 
-                      ? 'grey'
-                      : 'linear-gradient(135deg, #ff6b6b 0%, #ff8787 100%)',
-                    boxShadow: 3,
-                    '&:hover': {
-                      background: processing
-                        ? 'grey'
-                        : 'linear-gradient(135deg, #ee5a52 0%, #ff6b6b 100%)',
-                      boxShadow: 6,
-                      transform: 'translateY(-2px)',
-                      transition: 'all 0.3s'
-                    },
-                    '&:disabled': {
-                      background: 'grey',
-                      color: 'white'
-                    }
+                    flex: 1,
+                    p: { xs: 2.5, md: 3 },
+                    borderRadius: 4,
+                    background: "rgba(255,255,255,0.85)",
+                    border: "1px dashed rgba(15,23,42,0.12)",
                   }}
                 >
-                  {processing ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <CircularProgress size={20} sx={{ color: 'white' }} />
-                      Đang xử lý...
-                    </Box>
-                  ) : paymentMethod === "cod" ? (
-                    "📦 Đặt Hàng COD"
-                  ) : (
-                    "⚡ Thanh Toán PayOS"
-                  )}
-                </Button>
+                  <Typography fontWeight={700} color="#0f172a" sx={{ mb: 1 }}>
+                    Điều chỉnh nhanh
+                  </Typography>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} sx={{ mb: 1.5 }}>
+                    <Chip
+                      label={`${shippingMethodTitle}${currentShippingOption?.badge ? ` • ${currentShippingOption.badge}` : ""}`}
+                      color={currentShippingOption?.badgeColor ?? "default"}
+                    />
+                    <Typography variant="body2" color="#475569" sx={{ flex: 1 }}>
+                      {shippingMethodDescription}
+                    </Typography>
+                  </Stack>
+                  <Typography variant="caption" color="#94a3b8" sx={{ display: "block", mb: 1.5 }}>
+                    Phí hiện tại: {requiresAddressForShipping ? "Chờ xác định" : shippingFeeLabel}
+                  </Typography>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      startIcon={<LocalOfferIcon />}
+                      onClick={() => setVoucherDialogOpen(true)}
+                      sx={{
+                        textTransform: "none",
+                        fontWeight: 700,
+                        background: "linear-gradient(120deg, #fb7185, #f97316)",
+                        boxShadow: "0 10px 25px rgba(249,113,133,0.35)",
+                      }}
+                    >
+                      Quản lý voucher
+                    </Button>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      startIcon={<MyLocationIcon />}
+                      onClick={() => setShowMap(true)}
+                      sx={{
+                        textTransform: "none",
+                        fontWeight: 700,
+                        borderColor: "rgba(15,23,42,0.2)",
+                        color: "#0f172a",
+                        "&:hover": { borderColor: "#0f172a" },
+                      }}
+                    >
+                      Ghim vị trí giao hàng
+                    </Button>
+                  </Stack>
+                </Box>
+              </Stack>
+            </Stack>
+          </Paper>
 
-                <Typography 
-                  variant="caption" 
-                  color="text.secondary" 
-                  sx={{ display: 'block', textAlign: 'center', mt: 2 }}
+          <Grid container spacing={4}>
+            <Grid item xs={12} md={8}>
+              <Stack spacing={3}>
+                <Paper
+                  sx={{
+                    borderRadius: 4,
+                    p: { xs: 3, md: 4 },
+                    background: "rgba(255,255,255,0.95)",
+                    border: "1px solid rgba(15,23,42,0.06)",
+                    boxShadow: "0 35px 80px rgba(15,23,42,0.08)",
+                  }}
                 >
-                  🔒 Thông tin của bạn được bảo mật an toàn
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="space-between" alignItems={{ sm: "center" }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                      <Box sx={{ width: 44, height: 44, borderRadius: 2, background: "#eef2ff", display: "flex", alignItems: "center", justifyContent: "center", color: "#4338ca" }}>
+                        <ShoppingBagOutlinedIcon />
+                      </Box>
+                      <Box>
+                        <Typography fontWeight={700}>Danh sách sản phẩm</Typography>
+                        <Typography variant="body2" color="text.secondary">Tối ưu từng item trước khi đặt</Typography>
+                      </Box>
+                    </Box>
+                    <Chip label={`${cartItemCount} sản phẩm`} color="primary" variant="outlined" />
+                  </Stack>
 
-        {/* Address Management Dialog */}
-        <Dialog open={addressDialogOpen} onClose={() => setAddressDialogOpen(false)} maxWidth="md" fullWidth>
-          <DialogTitle>Quản lý địa chỉ</DialogTitle>
-          <DialogContent dividers>
-            <Box sx={{ display: 'flex', gap: 2 }}>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>Địa chỉ đã lưu</Typography>
-                {addresses.length === 0 ? (
-                  <Typography color="text.secondary">Bạn chưa có địa chỉ nào.</Typography>
-                ) : (
-                  <Stack spacing={1}>
-                    {addresses.map((a) => (
+                  <Divider sx={{ my: 3 }} />
+
+                  <Stack spacing={2.5}>
+                    {items.map((item) => (
                       <Paper
-                        key={a.id}
+                        key={item.productId._id}
+                        variant="outlined"
                         sx={{
-                          p: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          background: a.id === selectedAddressId ? 'rgba(25,118,210,0.06)' : undefined,
-                          border: a.id === selectedAddressId ? '1px solid rgba(25,118,210,0.2)' : undefined,
+                          p: 2,
+                          borderRadius: 3,
+                          borderColor: "rgba(15,23,42,0.08)",
+                          background: "linear-gradient(120deg, rgba(248,250,252,0.9), rgba(255,255,255,0.9))",
                         }}
                       >
-                        <Box sx={{ cursor: 'pointer' }} onClick={() => { if (a.id) { setSelectedAddressId(a.id); } else { setSelectedAddressId('new'); } setAddressForm(a); setAddressDialogOpen(false); }}>
-                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                            <Typography fontWeight={700}>{a.name} • {a.phone}</Typography>
-                            {a.isDefault && <Chip label="Mặc định" size="small" color="primary" />}
-                            {a.id === selectedAddressId && <Chip label="Đã chọn" size="small" color="success" />}
+                        <Stack direction="row" spacing={2} alignItems="center">
+                          {item.productId.images && item.productId.images[0] && (
+                            <Avatar src={item.productId.images[0]} variant="rounded" sx={{ width: 64, height: 64 }} />
+                          )}
+                          <Box sx={{ flex: 1 }}>
+                            <Typography fontWeight={700}>{item.productId.title}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Số lượng: {item.quantity} × {formatCurrency(item.productId.price)}
+                            </Typography>
                           </Box>
-                          <Typography variant="body2" color="text.secondary">{a.detail}</Typography>
-                        </Box>
-                        <Box>
-                          <Button size="small" onClick={() => { if (a.id) { setSelectedAddressId(a.id); setAddressForm(a); /* open edit on right side stays */ } }}>Sửa</Button>
-                          <Button size="small" onClick={() => { if (a.id) { setSelectedAddressId(a.id); } else { setSelectedAddressId('new'); } setAddressForm(a); setAddressDialogOpen(false); }}>Chọn</Button>
-                          <Button size="small" color="error" onClick={() => { if (a.id) { setDeleteTargetId(a.id); setConfirmDeleteOpen(true); } }}>Xoá</Button>
-                        </Box>
+                          <Typography fontWeight={700} color="primary">
+                            {formatCurrency(item.productId.price * item.quantity)}
+                          </Typography>
+                        </Stack>
                       </Paper>
                     ))}
                   </Stack>
-                )}
-                <Button sx={{ mt: 2 }} variant="outlined" onClick={() => { setSelectedAddressId('new'); setAddressForm({ id: undefined, name: '', phone: '', province: '', district: '', ward: '', detail: '', lat: undefined, lng: undefined, type: 'home', isDefault: false }); }}>Thêm địa chỉ mới</Button>
-              </Box>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>Chi tiết địa chỉ</Typography>
-                <Stack spacing={2}>
-                  <TextField label="Người nhận" value={addressForm.name} onChange={e => setAddressForm(s => ({ ...s, name: e.target.value }))} fullWidth />
-                  <TextField label="Số điện thoại" value={addressForm.phone} onChange={e => setAddressForm(s => ({ ...s, phone: e.target.value }))} fullWidth />
-                  <FormControl fullWidth>
-                    <InputLabel>Tỉnh/Thành</InputLabel>
-                    <Select value={addressForm.province} label="Tỉnh/Thành" onChange={async (e) => { const province = e.target.value; setAddressForm(s => ({ ...s, province, district: '', ward: '' })); const districtsList = await addressService.getDistricts(province); setDistricts(districtsList); }}>
-                      <MenuItem value="">-- Chọn Tỉnh/Thành --</MenuItem>
-                      {provinces.map(p => <MenuItem key={p} value={p}>{p}</MenuItem>)}
-                    </Select>
-                  </FormControl>
-                  <FormControl fullWidth disabled={!addressForm.province}>
-                    <InputLabel>Quận/Huyện</InputLabel>
-                    <Select value={addressForm.district} label="Quận/Huyện" onChange={async (e) => { const d = e.target.value; setAddressForm(s => ({ ...s, district: d, ward: '' })); const wardsList = await addressService.getWards(addressForm.province, d); setWards(wardsList); }}>
-                      <MenuItem value="">-- Chọn Quận/Huyện --</MenuItem>
-                      {districts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
-                    </Select>
-                  </FormControl>
-                  <FormControl fullWidth disabled={!addressForm.district}>
-                    <InputLabel>Phường/Xã</InputLabel>
-                    <Select value={addressForm.ward} label="Phường/Xã" onChange={e => setAddressForm(s => ({ ...s, ward: e.target.value }))}>
-                      <MenuItem value="">-- Chọn Phường/Xã --</MenuItem>
-                      {wards.map(w => <MenuItem key={w} value={w}>{w}</MenuItem>)}
-                    </Select>
-                  </FormControl>
-                  <TextField
-                    label="Địa chỉ cụ thể"
-                    value={addressForm.detail}
-                    onChange={e => setAddressForm(s => ({ ...s, detail: e.target.value }))}
-                    fullWidth
-                    multiline
-                    rows={2}
-                  />
 
-                  <Paper elevation={0} sx={{ p: 2, mt: 2, borderRadius: 2, background: '#f8fbff' }}>
-                    <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
-                      Chọn vị trí trên bản đồ (kéo ghim để chỉnh chính xác)
-                    </Typography>
-                    <Box sx={{ position: 'relative', borderRadius: 1, overflow: 'hidden' }}>
-                      <Box sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1200 }}>
-                        <IconButton
-                          onClick={handleGetCurrentLocation}
-                          size="small"
-                          sx={{ bgcolor: 'white', boxShadow: 1 }}
-                        >
-                          <MyLocationIcon sx={{ color: '#1976d2' }} />
-                        </IconButton>
-                      </Box>
-                      <MapContainer
-                        center={addressForm.lat && addressForm.lng ? [addressForm.lat, addressForm.lng] : [21.0278, 105.8342]}
-                        zoom={13}
-                        style={{ height: 220, width: '100%' }}
-                      >
-                        <TileLayer url={`https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=${import.meta.env.VITE_MAPTILER_KEY || 'GHZKttyI4ARcAaCe0j5d'}`} />
-                        <LocationMarker />
-                        <DraggablePin />
-                        <MapPanner lat={addressForm.lat} lng={addressForm.lng} />
-                      </MapContainer>
-                    </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                      Toạ độ: {addressForm.lat ? addressForm.lat.toFixed(6) : '--'}, {addressForm.lng ? addressForm.lng.toFixed(6) : '--'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', gap: 1, mt: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <Button variant="outlined" onClick={() => { if (addressForm.lat && addressForm.lng) void fetchNearbyPlaces(addressForm.lat, addressForm.lng, nearbyRadius); else toast.warning('Vui lòng ghim vị trí trước'); }}>Quán / Địa điểm gần đây</Button>
-                      <FormControl size="small" sx={{ minWidth: 120 }}>
-                        <InputLabel>Khoảng cách</InputLabel>
-                        <Select value={nearbyRadius} label="Khoảng cách" onChange={(e) => { const r = Number(e.target.value); setNearbyRadius(r); if (addressForm.lat && addressForm.lng) void fetchNearbyPlaces(addressForm.lat, addressForm.lng, r); }}>
-                          <MenuItem value={200}>200 m</MenuItem>
-                          <MenuItem value={500}>500 m</MenuItem>
-                          <MenuItem value={1000}>1 km</MenuItem>
-                        </Select>
-                      </FormControl>
-                      <Typography variant="caption" color="text.secondary">{loadingNearby ? 'Đang tìm...' : `${nearbyPlaces.length} địa điểm`}</Typography>
-                    </Box>
+                  <Divider sx={{ my: 3 }} />
 
-                    <Box sx={{ mt: 2 }}>
-                      {loadingNearby ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><CircularProgress size={18} /> <Typography variant="body2">Đang tải địa điểm gần đây...</Typography></Box>
-                      ) : nearbyPlaces.length === 0 ? (
-                        <Typography variant="body2" color="text.secondary">Chưa có địa điểm gần đây. Hãy ghim vị trí hoặc thử khoảng cách khác.</Typography>
-                      ) : (
-                        <Stack spacing={1}>
-                          {nearbyPlaces.map(p => (
-                            <Paper key={p.id} sx={{ p: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                              <Box>
-                                <Typography fontWeight={700}>{p.name || '(Không tên)'}</Typography>
-                                <Typography variant="caption" color="text.secondary">{p.type || 'Địa điểm'}</Typography>
-                              </Box>
-                              <Box sx={{ display: 'flex', gap: 1 }}>
-                                <Button size="small" onClick={() => { setAddressForm(a => ({ ...a, detail: p.name || a.detail, lat: p.lat, lng: p.lng, isPinned: true })); setCoordLat(String(p.lat)); setCoordLng(String(p.lng)); setSelectedAddressId('new'); toast.success('✅ Đã chọn địa điểm'); }}>Chọn</Button>
-                                <Button size="small" onClick={() => { setAddressForm(a => ({ ...a, lat: p.lat, lng: p.lng, isPinned: true })); setCoordLat(String(p.lat)); setCoordLng(String(p.lng)); toast.info('🔎 Đã di chuyển bản đồ tới địa điểm'); }}>Xem</Button>
-                              </Box>
-                            </Paper>
-                          ))}
+                  <Stack spacing={2}>
+                    <Button
+                      variant={selectedVoucher ? "contained" : "outlined"}
+                      startIcon={<LocalOfferIcon />}
+                      onClick={() => setVoucherDialogOpen(true)}
+                      sx={{
+                        alignSelf: "flex-start",
+                        textTransform: "none",
+                        fontWeight: 700,
+                        background: selectedVoucher ? "linear-gradient(120deg, #f97316, #fb7185)" : undefined,
+                        color: selectedVoucher ? "white" : undefined,
+                      }}
+                    >
+                      {selectedVoucher ? "Đổi voucher" : "Áp dụng voucher"}
+                    </Button>
+                    {selectedVoucher && (
+                      <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, borderColor: "rgba(249,115,22,0.4)" }}>
+                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+                          <Chip label={selectedVoucher.code} color="primary" />
+                          <Typography color="success.main" fontWeight={700}>
+                            {selectedVoucher.freeShipping
+                              ? requiresAddressForShipping
+                                ? "Freeship (chờ địa chỉ)"
+                                : shippingDiscount > 0
+                                  ? `- ${formatCurrency(shippingDiscount)}`
+                                  : "Freeship"
+                              : `- ${formatCurrency(voucherDiscount)}`}
+                          </Typography>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              {selectedVoucher.freeShipping
+                                ? "Voucher này miễn toàn bộ phí vận chuyển cho đơn hàng."
+                                : "Áp dụng cho toàn bộ đơn hàng hiện tại."}
+                            </Typography>
+                          </Box>
+                          <Button size="small" color="error" onClick={handleRemoveVoucher}>
+                            Bỏ voucher
+                          </Button>
                         </Stack>
-                      )}
-                    </Box>
-                  </Paper>
+                      </Paper>
+                    )}
+                    {voucherLoading && userVouchers.length === 0 && <LinearProgress sx={{ borderRadius: 999 }} />}
+                    {!voucherLoading && userVouchers.length > 0 && (
+                      <Stack spacing={1.5}>
+                        <Typography variant="subtitle2" color="text.secondary">
+                          Voucher khả dụng cho đơn này
+                        </Typography>
+                        {userVouchers.slice(0, 3).map((voucher) => {
+                          const applicable = voucher.applicable !== false;
+                          const isSelected = selectedVoucherCode === voucher.code;
+                          const isApplying = applyingVoucherCode === voucher.code;
+                          return (
+                            <Paper
+                              key={voucher._id ?? voucher.code}
+                              variant="outlined"
+                              sx={{
+                                p: 1.75,
+                                borderRadius: 3,
+                                borderColor: isSelected ? "primary.main" : "rgba(15,23,42,0.08)",
+                                background: isSelected ? "rgba(59,130,246,0.06)" : undefined,
+                              }}
+                            >
+                              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+                                <Box sx={{ flex: 1 }}>
+                                  <Typography fontWeight={700}>
+                                    {voucher.code}
+                                    {isSelected && " • Đang áp dụng"}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {voucher.freeShipping
+                                      ? "Miễn phí toàn bộ phí vận chuyển"
+                                      : voucher.type === "percent"
+                                        ? `${voucher.value}% tối đa ${voucher.maxDiscount ? formatCurrency(voucher.maxDiscount) : "không giới hạn"}`
+                                        : `Giảm ${formatCurrency(voucher.value)}`}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    Đơn tối thiểu: {voucher.minOrderValue ? formatCurrency(voucher.minOrderValue) : "Không"} • HSD: {formatDate(voucher.expiresAt)}
+                                  </Typography>
+                                  <Typography variant="caption" color={applicable ? "success.main" : "error.main"} display="block">
+                                    {applicable ? "Đủ điều kiện" : voucher.reason || "Chưa đạt điều kiện"}
+                                  </Typography>
+                                </Box>
+                                <Stack direction="row" spacing={1} alignItems="center" justifyContent="flex-end">
+                                  <Tooltip title="Chi tiết">
+                                    <IconButton size="small" onClick={() => showVoucherDetail(voucher)}>
+                                      <InfoOutlinedIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Button
+                                    variant={isSelected ? "outlined" : "contained"}
+                                    color={applicable ? "primary" : "inherit"}
+                                    disabled={!applicable || isApplying}
+                                    onClick={() => handleApplyVoucher(voucher)}
+                                    size="small"
+                                    sx={{ minWidth: 120 }}
+                                  >
+                                    {isApplying ? (
+                                      <CircularProgress size={18} sx={{ color: isSelected ? "text.primary" : "white" }} />
+                                    ) : isSelected ? (
+                                      "Đang dùng"
+                                    ) : (
+                                      "Dùng mã"
+                                    )}
+                                  </Button>
+                                </Stack>
+                              </Stack>
+                            </Paper>
+                          );
+                        })}
+                        {userVouchers.length > 3 && (
+                          <Button size="small" onClick={() => setVoucherDialogOpen(true)}>
+                            Xem thêm {userVouchers.length - 3} voucher khác
+                          </Button>
+                        )}
+                      </Stack>
+                    )}
+                  </Stack>
+                </Paper>
 
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button variant="contained" onClick={() => setConfirmSaveOpen(true)}>Lưu</Button>
-                    <Button variant="outlined" onClick={() => setAddressDialogOpen(false)}>Đóng</Button>
-                    {selectedAddressId && selectedAddressId !== 'new' && (
-                      <Button color="error" onClick={() => { if (selectedAddressId) { setDeleteTargetId(selectedAddressId); setConfirmDeleteOpen(true); } }}>Xoá</Button>
+                <Paper
+                  sx={{
+                    borderRadius: 4,
+                    p: { xs: 3, md: 4 },
+                    background: "rgba(255,255,255,0.95)",
+                    border: "1px solid rgba(15,23,42,0.06)",
+                    boxShadow: "0 35px 80px rgba(15,23,42,0.08)",
+                  }}
+                >
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="space-between" alignItems={{ sm: "center" }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                      <Box sx={{ width: 44, height: 44, borderRadius: 2, background: "#ecfeff", display: "flex", alignItems: "center", justifyContent: "center", color: "#0891b2" }}>
+                        <LocalShippingOutlinedIcon />
+                      </Box>
+                      <Box>
+                        <Typography fontWeight={700}>Địa chỉ & vận chuyển</Typography>
+                        <Typography variant="body2" color="text.secondary">Đảm bảo shipper biết chính xác nơi đến</Typography>
+                      </Box>
+                    </Box>
+                    <Button variant="outlined" size="small" onClick={() => setAddressDialogOpen(true)}>
+                      Quản lý địa chỉ
+                    </Button>
+                  </Stack>
+
+                  <Divider sx={{ my: 3 }} />
+
+                  <Box sx={{
+                    p: 2.5,
+                    borderRadius: 3,
+                    border: "1px dashed rgba(15,23,42,0.12)",
+                    background: "rgba(248,250,252,0.7)",
+                  }}>
+                    {addresses.length > 0 && selectedAddressId && selectedAddressId !== "new" ? (
+                      (() => {
+                        const found = addresses.find((a) => a.id === selectedAddressId);
+                        return found ? (
+                          <Stack spacing={0.5}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Typography fontWeight={700}>{found.name} • {found.phone}</Typography>
+                              {found.isDefault && <Chip label="Mặc định" size="small" color="primary" />}
+                              {found.id === selectedAddressId && <Chip label="Đã chọn" size="small" color="success" />}
+                            </Stack>
+                            <Typography variant="body2" color="text.secondary">{found.detail}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {[found.ward, found.district, found.province].filter(Boolean).join(", ")}
+                            </Typography>
+                          </Stack>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">Chưa chọn địa chỉ</Typography>
+                        );
+                      })()
+                    ) : (
+                      <Stack spacing={1}>
+                        <Typography variant="body2" color="text.secondary">
+                          Vui lòng chọn hoặc thêm địa chỉ giao hàng để ước tính phí chính xác.
+                        </Typography>
+                        <Button variant="contained" size="small" onClick={() => setAddressDialogOpen(true)}>
+                          Chọn/Thêm địa chỉ
+                        </Button>
+                      </Stack>
                     )}
                   </Box>
+
+                  <Divider sx={{ my: 3 }} />
+
+                  <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>Phương thức vận chuyển</Typography>
+                  <RadioGroup value={shippingMethod} onChange={(event) => setShippingMethod(event.target.value as ShippingMethod)}>
+                    <Grid container spacing={1.5}>
+                      {SHIPPING_METHOD_OPTIONS.map((option) => {
+                        const isActive = option.value === shippingMethod;
+                        return (
+                          <Grid item xs={12} sm={12} key={option.value}>
+                            <Paper
+                              elevation={0}
+                              sx={{
+                                p: 2,
+                                borderRadius: 3,
+                                border: isActive ? "2px solid rgba(79,70,229,0.6)" : "1px solid rgba(15,23,42,0.08)",
+                                background: isActive ? "rgba(79,70,229,0.04)" : "rgba(255,255,255,0.8)",
+                                transition: "all 0.3s",
+                              }}
+                            >
+                              <FormControlLabel
+                                value={option.value}
+                                control={<Radio sx={{ color: "#4338ca" }} />}
+                                label={
+                                  <Box>
+                                    <Stack direction="row" spacing={1} alignItems="center">
+                                      <Typography fontWeight={700}>{option.title}</Typography>
+                                      <Chip label={option.badge} size="small" color={option.badgeColor} />
+                                    </Stack>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {describeShippingMethod(option.value)}
+                                    </Typography>
+                                  </Box>
+                                }
+                                sx={{ width: "100%", m: 0 }}
+                              />
+                            </Paper>
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  </RadioGroup>
+                  <Typography variant="body2" color={requiresAddressForShipping ? "warning.main" : "text.secondary"} sx={{ mt: 2 }}>
+                    {requiresAddressForShipping ? "Vui lòng hoàn tất tỉnh/thành để ước tính phí." : `Ước tính phí: ${shippingFeeLabel}`}
+                  </Typography>
+                </Paper>
+
+                <Paper
+                  sx={{
+                    borderRadius: 4,
+                    p: { xs: 3, md: 4 },
+                    background: "rgba(255,255,255,0.95)",
+                    border: "1px solid rgba(15,23,42,0.06)",
+                    boxShadow: "0 35px 80px rgba(15,23,42,0.08)",
+                  }}
+                >
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={2} justifyContent="space-between" alignItems={{ sm: "center" }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                      <Box sx={{ width: 44, height: 44, borderRadius: 2, background: "#f0fdfa", display: "flex", alignItems: "center", justifyContent: "center", color: "#0f766e" }}>
+                        <PaymentOutlinedIcon />
+                      </Box>
+                      <Box>
+                        <Typography fontWeight={700}>Phương thức thanh toán</Typography>
+                        <Typography variant="body2" color="text.secondary">Chọn lựa phù hợp với thói quen của bạn</Typography>
+                      </Box>
+                    </Box>
+                  </Stack>
+
+                  <Divider sx={{ my: 3 }} />
+
+                  <RadioGroup value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}>
+                    <Stack spacing={1.5}>
+                      {[{
+                        value: "payos",
+                        title: "PayOS (QR / Ngân hàng)",
+                        description: "Thanh toán qua mã QR hoặc liên kết ngân hàng",
+                        badge: "Nhanh chóng",
+                        icon: "⚡",
+                      }, {
+                        value: "cod",
+                        title: "Thanh toán khi nhận hàng (COD)",
+                        description: "Thanh toán bằng tiền mặt khi nhận hàng",
+                        badge: "Tiện lợi",
+                        icon: "📦",
+                      }].map((method) => {
+                        const isActive = paymentMethod === method.value;
+                        return (
+                          <Paper
+                            key={method.value}
+                            elevation={0}
+                            sx={{
+                              p: 2.5,
+                              borderRadius: 3,
+                              border: isActive ? "2px solid rgba(16,185,129,0.6)" : "1px solid rgba(15,23,42,0.08)",
+                              background: isActive ? "rgba(16,185,129,0.05)" : "rgba(255,255,255,0.85)",
+                              transition: "all 0.3s",
+                            }}
+                          >
+                            <FormControlLabel
+                              value={method.value}
+                              control={<Radio sx={{ color: "#0f766e" }} />}
+                              label={
+                                <Stack spacing={0.5}>
+                                  <Stack direction="row" spacing={1} alignItems="center">
+                                    <Typography fontWeight={700}>{method.icon} {method.title}</Typography>
+                                    <Chip label={method.badge} size="small" color={method.value === "payos" ? "primary" : "success"} />
+                                  </Stack>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {method.description}
+                                  </Typography>
+                                </Stack>
+                              }
+                              sx={{ width: "100%", m: 0 }}
+                            />
+                          </Paper>
+                        );
+                      })}
+                    </Stack>
+                  </RadioGroup>
+                </Paper>
+              </Stack>
+            </Grid>
+
+            <Grid item xs={12} md={4}>
+              <Paper
+                sx={{
+                  borderRadius: 4,
+                  position: "sticky",
+                  top: 120,
+                  p: { xs: 3, md: 4 },
+                  background: "linear-gradient(180deg, #ffffff, #f8fbff)",
+                  border: "1px solid rgba(15,23,42,0.08)",
+                  boxShadow: "0 40px 90px rgba(15,23,42,0.12)",
+                }}
+              >
+                <Stack spacing={2}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Box sx={{ width: 44, height: 44, borderRadius: 2, background: "#eef2ff", display: "flex", alignItems: "center", justifyContent: "center", color: "#4338ca" }}>
+                      <ShoppingBagOutlinedIcon />
+                    </Box>
+                    <Box>
+                      <Typography fontWeight={700}>Đơn hàng của bạn</Typography>
+                      <Typography variant="body2" color="text.secondary">Kiểm tra lại trước khi đặt</Typography>
+                    </Box>
+                  </Box>
+
+                  <Divider />
+
+                  <Stack spacing={1.5}>
+                    {items.map((item) => (
+                      <Stack key={item.productId._id} direction="row" justifyContent="space-between" alignItems="center">
+                        <Box>
+                          <Typography fontWeight={600}>{item.productId.title}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Số lượng: {item.quantity}
+                          </Typography>
+                        </Box>
+                        <Typography fontWeight={700}>{formatCurrency(item.productId.price * item.quantity)}</Typography>
+                      </Stack>
+                    ))}
+                  </Stack>
+
+                  <Divider />
+
+                  <Stack spacing={1.25}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                      <Typography variant="body2" color="text.secondary">Tạm tính</Typography>
+                      <Typography fontWeight={600}>{formatCurrency(totalPrice)}</Typography>
+                    </Box>
+                    {selectedVoucher && (
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="text.secondary">
+                          {selectedVoucher.freeShipping ? `Voucher freeship (${selectedVoucher.code})` : `Voucher (${selectedVoucher.code})`}
+                        </Typography>
+                        <Typography fontWeight={600} color={selectedVoucher.freeShipping ? "success.main" : "error"}>
+                          {selectedVoucher.freeShipping
+                            ? requiresAddressForShipping
+                              ? "Chờ địa chỉ"
+                              : shippingDiscount > 0
+                                ? `-${formatCurrency(shippingDiscount)}`
+                                : "Freeship"
+                            : `-${formatCurrency(voucherDiscount)}`}
+                        </Typography>
+                      </Box>
+                    )}
+                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                      <Typography variant="body2" color="text.secondary">Phí vận chuyển ({shippingMethodTitle})</Typography>
+                      <Typography fontWeight={600} color={
+                        requiresAddressForShipping ? "warning.main" : effectiveShippingFee > 0 ? "text.primary" : "success.main"
+                      }>
+                        {requiresAddressForShipping ? "Cập nhật địa chỉ" : shippingFeeLabel}
+                      </Typography>
+                    </Box>
+                  </Stack>
+
+                  <Divider />
+
+                  <Box
+                    sx={{
+                      p: 2.5,
+                      borderRadius: 3,
+                      background: "linear-gradient(120deg, #dbeafe, #ede9fe)",
+                    }}
+                  >
+                    <Typography variant="body2" color="text.secondary">
+                      Tổng cộng
+                    </Typography>
+                    <Typography variant="h4" fontWeight={800} color="primary">
+                      {formatCurrency(finalTotal)}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Đã gồm ưu đãi và phí vận chuyển
+                    </Typography>
+                  </Box>
+
+                  <Button
+                    variant="contained"
+                    size="large"
+                    fullWidth
+                    onClick={handleCheckout}
+                    disabled={processing}
+                    sx={{
+                      py: 1.5,
+                      fontSize: "1.05rem",
+                      fontWeight: 700,
+                      background: processing ? "grey" : "linear-gradient(120deg, #ec4899, #f97316)",
+                      boxShadow: "0 20px 45px rgba(249,115,22,0.35)",
+                      "&:hover": {
+                        background: processing ? "grey" : "linear-gradient(120deg, #db2777, #ea580c)",
+                      },
+                      "&:disabled": {
+                        background: "grey",
+                        color: "white",
+                      },
+                    }}
+                  >
+                    {processing ? (
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                        <CircularProgress size={20} sx={{ color: "white" }} />
+                        Đang xử lý...
+                      </Box>
+                    ) : paymentMethod === "cod" ? (
+                      "📦 Đặt Hàng COD"
+                    ) : (
+                      "⚡ Thanh Toán PayOS"
+                    )}
+                  </Button>
+
+                  <Typography variant="caption" color="text.secondary" sx={{ textAlign: "center" }}>
+                    🔒 Thông tin của bạn được bảo mật tuyệt đối.
+                  </Typography>
                 </Stack>
-              </Box>
-            </Box>
-          </DialogContent>
-        </Dialog>
+              </Paper>
+            </Grid>
+          </Grid>
+        </Stack>
+      </Container>
+    </Box>
+
+      {/* Address Management Dialog */}
+      <Dialog
+        open={addressDialogOpen}
+        onClose={() => setAddressDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 5,
+            overflow: "hidden",
+            background: "linear-gradient(135deg, #fdf2f8, #eef2ff)",
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            background: "linear-gradient(120deg, #ec4899, #6366f1)",
+            color: "white",
+            fontWeight: 800,
+            letterSpacing: 1,
+          }}
+        >
+          📍 Trung Tâm Quản Lý Địa Chỉ
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ p: { xs: 3, md: 4 } }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12}>
+                <Paper
+                  sx={{
+                    p: 3,
+                    borderRadius: 4,
+                    background: "linear-gradient(135deg, #eef2ff, #f5f3ff)",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: 2,
+                    alignItems: "center",
+                  }}
+                >
+                  <Box sx={{ flex: 1 }}>
+                    <Typography fontWeight={800} color="#312e81" sx={{ mb: 0.5 }}>
+                      Đồng bộ toàn bộ địa chỉ giao hàng
+                    </Typography>
+                    <Typography variant="body2" color="#4338ca">
+                      Chọn nhanh địa chỉ đã lưu hoặc cập nhật thông tin mới để đảm bảo shipper đến đúng nơi.
+                    </Typography>
+                  </Box>
+                  <Chip label={`${addresses.length} địa chỉ đã lưu`} color="primary" variant="outlined" />
+                </Paper>
+              </Grid>
+
+              <Grid item xs={12} md={4}>
+                <Stack spacing={2.5}>
+                  <Paper sx={{ p: 2.5, borderRadius: 4, background: "#fff", border: "1px solid rgba(15,23,42,0.08)" }}>
+                    <Typography fontWeight={700} sx={{ mb: 0.5 }}>
+                      Địa chỉ đã lưu
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Chạm để xem nhanh hoặc chỉnh sửa.
+                    </Typography>
+                  </Paper>
+
+                  {addresses.length === 0 ? (
+                    <Paper sx={{ p: 3, textAlign: "center", borderRadius: 4, border: "1px dashed rgba(148,163,184,0.6)", background: "rgba(248,250,252,0.8)" }}>
+                      <Typography fontWeight={600}>Bạn chưa có địa chỉ nào.</Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        Dùng bảng bên phải để thêm địa chỉ đầu tiên.
+                      </Typography>
+                    </Paper>
+                  ) : (
+                    <Paper sx={{ p: 2, borderRadius: 4, border: "1px solid rgba(148,163,184,0.4)", background: "white" }}>
+                      <Stack spacing={1.5} sx={{ maxHeight: 420, overflowY: "auto", pr: 1 }}>
+                        {addresses.map((a) => {
+                          const isActive = a.id === selectedAddressId;
+                          return (
+                            <Paper
+                              key={a.id}
+                              variant="outlined"
+                              sx={{
+                                p: 1.75,
+                                borderRadius: 3,
+                                borderColor: isActive ? "rgba(79,70,229,0.6)" : "rgba(226,232,240,0.8)",
+                                background: isActive ? "rgba(79,70,229,0.05)" : "rgba(248,250,252,0.8)",
+                                transition: "all 0.3s",
+                                cursor: "pointer",
+                              }}
+                              onClick={() => {
+                                if (a.id) {
+                                  setSelectedAddressId(a.id);
+                                } else {
+                                  setSelectedAddressId("new");
+                                }
+                                setAddressForm(a);
+                              }}
+                            >
+                              <Stack spacing={0.5}>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                  <Typography fontWeight={700}>{a.name} • {a.phone}</Typography>
+                                  {a.isDefault && <Chip label="Mặc định" size="small" color="primary" />}
+                                  {isActive && <Chip label="Đang chỉnh" size="small" color="success" />}
+                                </Stack>
+                                <Typography variant="body2" color="text.secondary">
+                                  {a.detail}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {[a.ward, a.district].filter(Boolean).join(", ")}
+                                </Typography>
+                                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                                  <Button size="small" variant="outlined" onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (a.id) {
+                                      setSelectedAddressId(a.id);
+                                      setAddressForm(a);
+                                    }
+                                  }}>
+                                    Sửa
+                                  </Button>
+                                  <Button size="small" variant="contained" onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (a.id) {
+                                      setSelectedAddressId(a.id);
+                                      setAddressForm(a);
+                                      setAddressDialogOpen(false);
+                                    }
+                                  }}>
+                                    Dùng địa chỉ
+                                  </Button>
+                                  <Button size="small" color="error" onClick={(event) => {
+                                    event.stopPropagation();
+                                    if (a.id) {
+                                      setDeleteTargetId(a.id);
+                                      setConfirmDeleteOpen(true);
+                                    }
+                                  }}>
+                                    Xoá
+                                  </Button>
+                                </Stack>
+                              </Stack>
+                            </Paper>
+                          );
+                        })}
+                      </Stack>
+                    </Paper>
+                  )}
+
+                  <Button
+                    variant="contained"
+                    startIcon={<MyLocationIcon />}
+                    onClick={() => {
+                      setSelectedAddressId("new");
+                      setAddressForm({
+                        id: undefined,
+                        name: "",
+                        phone: "",
+                        province: "",
+                        district: "",
+                        ward: "",
+                        detail: "",
+                        lat: undefined,
+                        lng: undefined,
+                        type: "home",
+                        isDefault: false,
+                      });
+                    }}
+                    sx={{ textTransform: "none", fontWeight: 700 }}
+                  >
+                    Thêm địa chỉ mới
+                  </Button>
+                </Stack>
+              </Grid>
+
+              <Grid item xs={12} md={8}>
+                <Paper sx={{ p: { xs: 3, md: 4 }, borderRadius: 4, border: "1px solid rgba(15,23,42,0.08)", background: "white" }}>
+                  <Stack spacing={2.5}>
+                    <Box>
+                      <Typography fontWeight={800} sx={{ mb: 0.5 }}>
+                        Cập nhật chi tiết địa chỉ
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Điền đủ các trường để tối ưu ước tính phí ship.
+                      </Typography>
+                    </Box>
+
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} sm={6}>
+                        <TextField label="Người nhận" value={addressForm.name} onChange={e => setAddressForm(s => ({ ...s, name: e.target.value }))} fullWidth />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField label="Số điện thoại" value={addressForm.phone} onChange={e => setAddressForm(s => ({ ...s, phone: e.target.value }))} fullWidth />
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <FormControl fullWidth>
+                          <InputLabel>Tỉnh/Thành</InputLabel>
+                          <Select value={addressForm.province} label="Tỉnh/Thành" onChange={async (e) => { const province = e.target.value; setAddressForm(s => ({ ...s, province, district: '', ward: '' })); const districtsList = await addressService.getDistricts(province); setDistricts(districtsList); }}>
+                            <MenuItem value="">-- Chọn Tỉnh/Thành --</MenuItem>
+                            {provinces.map(p => <MenuItem key={p} value={p}>{p}</MenuItem>)}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <FormControl fullWidth disabled={!addressForm.province}>
+                          <InputLabel>Quận/Huyện</InputLabel>
+                          <Select value={addressForm.district} label="Quận/Huyện" onChange={async (e) => { const d = e.target.value; setAddressForm(s => ({ ...s, district: d, ward: '' })); const wardsList = await addressService.getWards(addressForm.province, d); setWards(wardsList); }}>
+                            <MenuItem value="">-- Chọn Quận/Huyện --</MenuItem>
+                            {districts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} sm={4}>
+                        <FormControl fullWidth disabled={!addressForm.district}>
+                          <InputLabel>Phường/Xã</InputLabel>
+                          <Select value={addressForm.ward} label="Phường/Xã" onChange={e => setAddressForm(s => ({ ...s, ward: e.target.value }))}>
+                            <MenuItem value="">-- Chọn Phường/Xã --</MenuItem>
+                            {wards.map(w => <MenuItem key={w} value={w}>{w}</MenuItem>)}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          label="Địa chỉ cụ thể"
+                          value={addressForm.detail}
+                          onChange={e => {
+                            setGoogleFullAddress("");
+                            setAddressForm(s => ({ ...s, detail: e.target.value }));
+                          }}
+                          onBlur={() => {
+                            const raw = addressForm.detail;
+                            const sanitized = sanitizeDetail(raw, addressForm.province, addressForm.district, addressForm.ward) || raw;
+                            const formatted = detailedAddressMode
+                              ? formatDetailedAddress(sanitized, addressForm.province, addressForm.district, addressForm.ward)
+                              : formatSpecificAddress(sanitized);
+                            if (formatted && formatted !== raw) {
+                              setAddressForm(s => ({ ...s, detail: formatted }));
+                            }
+                          }}
+                          onPaste={(e) => {
+                            e.preventDefault();
+                            const text = e.clipboardData?.getData('text') || '';
+                            const sanitized = sanitizeDetail(text, addressForm.province, addressForm.district, addressForm.ward) || text;
+                            const formatted = detailedAddressMode
+                              ? formatDetailedAddress(sanitized, addressForm.province, addressForm.district, addressForm.ward)
+                              : formatSpecificAddress(sanitized);
+                            setGoogleFullAddress("");
+                            setAddressForm(s => ({ ...s, detail: formatted || sanitized }));
+                          }}
+                          fullWidth
+                          multiline
+                          rows={2}
+                        />
+                      </Grid>
+                      {googleFullAddress && (
+                        <Grid item xs={12}>
+                          <Alert
+                            severity="info"
+                            icon={<PublicIcon fontSize="small" />}
+                            action={
+                              <Button size="small" color="inherit" onClick={() => copyGoogleAddress()}>
+                                Sao chép
+                              </Button>
+                            }
+                            sx={{ alignItems: 'center' }}
+                          >
+                            <Stack spacing={0.5}>
+                              <Typography variant="caption" sx={{ fontWeight: 700, letterSpacing: 0.3 }}>
+                                Google Maps đề xuất
+                              </Typography>
+                              <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>
+                                {googleFullAddress}
+                              </Typography>
+                            </Stack>
+                          </Alert>
+                        </Grid>
+                      )}
+                    </Grid>
+
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        p: 3,
+                        borderRadius: 4,
+                        background: 'linear-gradient(140deg, #eef2ff 0%, #e0f2fe 100%)',
+                        border: '1px solid rgba(79,70,229,0.15)',
+                        boxShadow: '0 30px 70px rgba(148,163,184,0.35)'
+                      }}
+                    >
+                      <Stack spacing={2.5}>
+                        <Box>
+                          <Typography variant="subtitle2" fontWeight={800} sx={{ mb: 0.5 }}>
+                            Bản đồ trực quan
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Kéo thả ghim hoặc chọn một gợi ý gần đó để cập nhật toạ độ chính xác nhất.
+                          </Typography>
+                        </Box>
+
+                        <Box
+                          sx={{
+                            position: 'relative',
+                            borderRadius: 4,
+                            overflow: 'hidden',
+                            background: 'radial-gradient(circle at top, rgba(238,242,255,0.85), rgba(224,242,254,0.4))',
+                            border: '1px solid rgba(99,102,241,0.25)',
+                            boxShadow: '0 25px 60px rgba(79,70,229,0.25)',
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              inset: 0,
+                              pointerEvents: 'none',
+                              background: 'linear-gradient(120deg, rgba(236,72,153,0.08), rgba(59,130,246,0.08))'
+                            }}
+                          />
+
+                          <Box sx={{ position: 'absolute', top: 16, left: 16, zIndex: 1200, pointerEvents: 'none', maxWidth: 260 }}>
+                            <Paper elevation={0} sx={{ p: 1.5, borderRadius: 3, background: 'rgba(15,23,42,0.7)', color: 'white' }}>
+                              <Stack direction="row" spacing={0.5} alignItems="center">
+                                <PushPinOutlinedIcon sx={{ fontSize: 16, color: 'rgba(248,250,252,0.85)' }} />
+                                <Typography variant="caption" sx={{ letterSpacing: 0.5, textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>
+                                  Địa điểm đang ghim
+                                </Typography>
+                              </Stack>
+                              <Typography fontWeight={700} sx={{ mt: 0.5 }}>
+                                {addressForm.detail || 'Chưa có mô tả cụ thể'}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                                {[addressForm.ward, addressForm.district].filter(Boolean).join(', ') || 'Chưa rõ khu vực'}
+                              </Typography>
+                              {googleFullAddress && (
+                                <Typography variant="caption" sx={{ display: 'block', mt: 0.75, color: 'rgba(248,250,252,0.9)' }}>
+                                  Google Maps: {googleFullAddress}
+                                </Typography>
+                              )}
+                            </Paper>
+                          </Box>
+
+                          <Box sx={{ position: 'absolute', bottom: 16, left: 16, zIndex: 1200, pointerEvents: 'none' }}>
+                            <Chip
+                              label={`${nearbyPlaces.length} gợi ý quanh đây`}
+                              color="primary"
+                              sx={{ bgcolor: 'rgba(37,99,235,0.9)', color: 'white', fontWeight: 700 }}
+                            />
+                          </Box>
+
+                          <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 1300, display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'flex-end' }}>
+                            <ToggleButtonGroup
+                              size="small"
+                              exclusive
+                              value={mapStyle}
+                              onChange={(_, value) => {
+                                if (value) setMapStyle(value);
+                              }}
+                              sx={{
+                                background: 'rgba(15,23,42,0.85)',
+                                borderRadius: 999,
+                                '& .MuiToggleButton-root': {
+                                  color: 'rgba(255,255,255,0.75)',
+                                  border: 'none',
+                                  textTransform: 'none',
+                                  px: 1.5,
+                                  '&.Mui-selected': {
+                                    background: 'linear-gradient(120deg,#a855f7,#ec4899)',
+                                    color: '#fff',
+                                  },
+                                },
+                              }}
+                            >
+                              {mapLayerOptions.map((option) => (
+                                <ToggleButton key={option.value} value={option.value}>
+                                  <Stack direction="row" spacing={0.5} alignItems="center">
+                                    {option.icon}
+                                    <Typography variant="caption">{option.label}</Typography>
+                                  </Stack>
+                                </ToggleButton>
+                              ))}
+                            </ToggleButtonGroup>
+                            <Tooltip title="Lấy vị trí hiện tại">
+                              <IconButton
+                                onClick={handleGetCurrentLocation}
+                                size="small"
+                                sx={{ bgcolor: 'white', boxShadow: 2, '&:hover': { bgcolor: '#e0f2fe' } }}
+                              >
+                                <MyLocationIcon sx={{ color: '#0ea5e9' }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Lấy địa chỉ từ Google Maps">
+                              <IconButton
+                                onClick={async () => {
+                                  if (!addressForm.lat || !addressForm.lng) {
+                                    toast.warning('Vui lòng ghim vị trí trước khi lấy địa chỉ từ Google Maps');
+                                    return;
+                                  }
+                                  const lat = addressForm.lat as number;
+                                  const lng = addressForm.lng as number;
+                                  const res = await fetchGoogleAddress(lat, lng);
+                                  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+                                  try { window.open(mapsUrl, '_blank'); } catch (err) { console.warn('Failed to open Google Maps tab', err); }
+                                  if (!res) {
+                                    toast.info('Không lấy được địa chỉ chi tiết từ Google. Đã mở Google Maps để bạn kiểm tra.');
+                                    return;
+                                  }
+                                  setAddressForm(a => ({ ...a, lat, lng, isPinned: true }));
+                                  setCoordLat(String(lat));
+                                  setCoordLng(String(lng));
+                                  setSelectedAddressId('new');
+                                  await autofillDetailFromGoogle(lat, lng, res);
+                                  toast.success('✅ Đã lấy địa chỉ chi tiết từ Google Maps');
+                                }}
+                                size="small"
+                                sx={{ bgcolor: 'white', boxShadow: 2, '&:hover': { bgcolor: '#fff1f2' } }}
+                              >
+                                <PublicIcon sx={{ color: '#ef4444' }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Chip
+                              icon={<ExploreOutlinedIcon fontSize="small" />}
+                              label={`Bán kính ${nearbyRadius >= 1000 ? `${(nearbyRadius / 1000).toFixed(1)} km` : `${nearbyRadius} m`}`}
+                              variant="outlined"
+                              sx={{ borderColor: 'rgba(255,255,255,0.4)', color: 'white', bgcolor: 'rgba(15,23,42,0.65)' }}
+                            />
+                          </Box>
+
+                          <MapContainer
+                            center={addressForm.lat && addressForm.lng ? [addressForm.lat, addressForm.lng] : [21.0278, 105.8342]}
+                            zoom={14}
+                            style={{ height: 260, width: '100%', filter: 'saturate(1.1) contrast(1.04)' }}
+                          >
+                            <TileLayer url={buildGoogleTileUrl(mapStyle)} />
+                            <LocationMarker />
+                            <DraggablePin />
+                            <MapPanner lat={addressForm.lat} lng={addressForm.lng} />
+                          </MapContainer>
+                        </Box>
+
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                          <Button
+                            variant="outlined"
+                            onClick={() => {
+                              if (addressForm.lat && addressForm.lng) {
+                                void fetchNearbyPlaces(addressForm.lat, addressForm.lng, nearbyRadius);
+                              } else {
+                                toast.warning('Vui lòng ghim vị trí trước');
+                              }
+                            }}
+                          >
+                            Làm mới gợi ý
+                          </Button>
+                          <FormControl size="small" sx={{ minWidth: 140 }}>
+                            <InputLabel>Khoảng cách</InputLabel>
+                            <Select
+                              value={nearbyRadius}
+                              label="Khoảng cách"
+                              onChange={(e) => {
+                                const r = Number(e.target.value);
+                                setNearbyRadius(r);
+                                if (addressForm.lat && addressForm.lng) {
+                                  void fetchNearbyPlaces(addressForm.lat, addressForm.lng, r);
+                                }
+                              }}
+                            >
+                              <MenuItem value={200}>200 m</MenuItem>
+                              <MenuItem value={500}>500 m</MenuItem>
+                              <MenuItem value={1000}>1 km</MenuItem>
+                            </Select>
+                          </FormControl>
+                          <Typography variant="caption" color="text.secondary">
+                            {loadingNearby ? 'Đang tìm địa điểm...' : `${nearbyPlaces.length} địa điểm khả dụng`}
+                          </Typography>
+                        </Stack>
+
+                        <Box>
+                          {loadingNearby ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <CircularProgress size={18} />
+                              <Typography variant="body2">Đang tải địa điểm gần đây...</Typography>
+                            </Box>
+                          ) : nearbyPlaces.length === 0 ? (
+                            <Typography variant="body2" color="text.secondary">
+                              Chưa có gợi ý quanh vị trí này. Hãy thử kéo ghim hoặc tăng bán kính tìm kiếm.
+                            </Typography>
+                          ) : (
+                            <Box sx={{ position: 'relative' }}>
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  const el = document.getElementById('nearby-scroll');
+                                  if (el) el.scrollBy({ left: -300, behavior: 'smooth' });
+                                }}
+                                sx={{ position: 'absolute', left: -8, top: '40%', zIndex: 20, bgcolor: 'white', boxShadow: 1 }}
+                              >
+                                <ChevronLeftIcon />
+                              </IconButton>
+
+                              <Box
+                                id="nearby-scroll"
+                                sx={{
+                                  display: 'flex',
+                                  gap: 1.25,
+                                  overflowX: 'auto',
+                                  py: 1,
+                                  px: 0,
+                                  scrollSnapType: 'x mandatory',
+                                  '&::-webkit-scrollbar': { height: 8 },
+                                  '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(148,163,184,0.4)', borderRadius: 2 }
+                                }}
+                              >
+                                {nearbyPlaces.map((p) => {
+                                  const distanceLabel = formatDistanceLabel(p.distance);
+                                  const subtitle = [prettifyPlaceType(p.type), p.addressLine].filter(Boolean).join(' • ') || 'Gợi ý gần vị trí ghim';
+                                  return (
+                                    <Paper
+                                      key={p.id}
+                                      sx={{
+                                        p: 1.5,
+                                        minWidth: { xs: '100%', sm: 300 },
+                                        borderRadius: 3,
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: 'stretch',
+                                        gap: 1.5,
+                                        border: '1px solid rgba(148,163,184,0.4)',
+                                        background: 'rgba(255,255,255,0.95)',
+                                        scrollSnapAlign: 'start'
+                                      }}
+                                    >
+                                      <Box sx={{ flex: 1 }}>
+                                        <Stack direction="row" spacing={1} alignItems="center">
+                                          <Typography fontWeight={700}>{p.name || prettifyPlaceType(p.type) || 'Địa điểm'}</Typography>
+                                          {distanceLabel && (
+                                            <Chip
+                                              size="small"
+                                              icon={<ExploreOutlinedIcon fontSize="small" />}
+                                              label={distanceLabel}
+                                              sx={{ bgcolor: 'rgba(59,130,246,0.1)', borderRadius: 1 }}
+                                            />
+                                          )}
+                                        </Stack>
+                                        <Typography variant="body2" color="text.secondary">
+                                          {subtitle}
+                                        </Typography>
+                                      </Box>
+                                      <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                                        <Button size="small" variant="contained" onClick={() => handleApplyNearbyPlace(p)}>
+                                          Dùng vị trí
+                                        </Button>
+                                        <Button size="small" variant="outlined" onClick={() => handlePreviewNearbyPlace(p)}>
+                                          Xem bản đồ
+                                        </Button>
+                                      </Stack>
+                                    </Paper>
+                                  );
+                                })}
+                              </Box>
+
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  const el = document.getElementById('nearby-scroll');
+                                  if (el) el.scrollBy({ left: 300, behavior: 'smooth' });
+                                }}
+                                sx={{ position: 'absolute', right: -8, top: '40%', zIndex: 20, bgcolor: 'white', boxShadow: 1 }}
+                              >
+                                <ChevronRightIcon />
+                              </IconButton>
+                            </Box>
+                          )}
+                        </Box>
+                      </Stack>
+                    </Paper>
+
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+                      <Button variant="contained" onClick={() => setConfirmSaveOpen(true)} sx={{ flex: 1, textTransform: 'none', fontWeight: 700, background: 'linear-gradient(120deg, #22d3ee, #3b82f6)' }}>Lưu thay đổi</Button>
+                      <Button variant="outlined" onClick={() => setAddressDialogOpen(false)} sx={{ flex: 1 }}>Đóng</Button>
+                      {selectedAddressId && selectedAddressId !== 'new' && (
+                        <Button color="error" onClick={() => { if (selectedAddressId) { setDeleteTargetId(selectedAddressId); setConfirmDeleteOpen(true); } }} sx={{ flex: 1 }}>Xoá địa chỉ</Button>
+                      )}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              </Grid>
+            </Grid>
+          </Box>
+        </DialogContent>
+      </Dialog>
 
         {/* Confirm Save Dialog */}
         <Dialog open={confirmSaveOpen} onClose={() => setConfirmSaveOpen(false)} maxWidth="xs" fullWidth>
@@ -1843,70 +2957,111 @@ export default function CheckoutPage() {
         </Dialog>
 
 
-        {/* Voucher Dialog */}
-        <Dialog open={voucherDialogOpen} onClose={() => setVoucherDialogOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>Chọn voucher cho đơn hàng</DialogTitle>
-          <DialogContent dividers>
+      {/* Voucher Dialog */}
+      <Dialog
+        open={voucherDialogOpen}
+        onClose={() => setVoucherDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 4,
+            overflow: "hidden",
+            background: "linear-gradient(180deg, #fff7ed, #f5f3ff)",
+          },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            background: "linear-gradient(120deg, #f97316, #ec4899)",
+            color: "white",
+            fontWeight: 800,
+            letterSpacing: 1,
+          }}
+        >
+          🎟️ Trung Tâm Voucher
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ p: { xs: 3, md: 4 } }}>
             {voucherError && (
-              <Typography color="error" align="center" sx={{ mb: 2 }}>
+              <Alert severity="error" sx={{ mb: 3 }}>
                 {voucherError}
-              </Typography>
+              </Alert>
             )}
 
-            <Stack spacing={3} sx={{ mb: 3 }}>
-              <Box>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  Nhập mã voucher
-                </Typography>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems="flex-start">
-                  <TextField
-                    fullWidth
-                    label="Mã voucher"
-                    size="small"
-                    value={manualVoucherCode}
-                    onChange={(e) => {
-                      setManualVoucherCode(e.target.value.toUpperCase());
-                      if (manualVoucherError) setManualVoucherError(null);
-                    }}
-                    error={Boolean(manualVoucherError)}
-                    helperText={manualVoucherError || ""}
-                  />
-                  <Button
-                    variant="contained"
-                    onClick={handleApplyManualVoucher}
-                    disabled={!manualVoucherCode.trim() || applyingVoucherCode === manualVoucherCode.trim().toUpperCase()}
-                    sx={{ minWidth: 140 }}
-                  >
-                    {applyingVoucherCode === manualVoucherCode.trim().toUpperCase() ? (
-                      <CircularProgress size={18} sx={{ color: "white" }} />
-                    ) : (
-                      "Áp dụng"
-                    )}
-                  </Button>
+            <Stack spacing={4}>
+              <Paper
+                sx={{
+                  p: 3,
+                  borderRadius: 4,
+                  background: "linear-gradient(135deg, #fff7ed, #fee2e2)",
+                  border: "1px solid rgba(251,146,60,0.3)",
+                }}
+              >
+                <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography fontWeight={700} color="#c2410c">
+                      Nhập mã riêng của bạn
+                    </Typography>
+                    <Typography variant="body2" color="#9a3412">
+                      Thử mã nội bộ hoặc mã quà tặng để nhận ưu đãi bổ sung.
+                    </Typography>
+                  </Box>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} sx={{ width: { xs: "100%", md: "auto" } }}>
+                    <TextField
+                      fullWidth
+                      label="Mã voucher"
+                      size="small"
+                      value={manualVoucherCode}
+                      onChange={(e) => {
+                        setManualVoucherCode(e.target.value.toUpperCase());
+                        if (manualVoucherError) setManualVoucherError(null);
+                      }}
+                      error={Boolean(manualVoucherError)}
+                      helperText={manualVoucherError || ""}
+                    />
+                    <Button
+                      variant="contained"
+                      onClick={handleApplyManualVoucher}
+                      disabled={!manualVoucherCode.trim() || applyingVoucherCode === manualVoucherCode.trim().toUpperCase()}
+                      sx={{ minWidth: 140, height: 40, fontWeight: 700 }}
+                    >
+                      {applyingVoucherCode === manualVoucherCode.trim().toUpperCase() ? (
+                        <CircularProgress size={18} sx={{ color: "white" }} />
+                      ) : (
+                        "Áp dụng"
+                      )}
+                    </Button>
+                  </Stack>
                 </Stack>
-              </Box>
+              </Paper>
 
-              <Box>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  Gợi ý tốt nhất cho đơn này
-                </Typography>
-                {bestVoucherLoading ? (
-                  <LinearProgress sx={{ borderRadius: 999 }} />
-                ) : bestVoucher ? (
-                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                    <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ sm: "center" }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography fontWeight={700}>{bestVoucher.code}</Typography>
-                        <Typography variant="body2" color="text.secondary">
+              <Paper
+                sx={{
+                  p: 3,
+                  borderRadius: 4,
+                  border: "1px solid rgba(14,165,233,0.2)",
+                  background: "linear-gradient(135deg, #ecfeff, #e0f2fe)",
+                }}
+              >
+                <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
+                  <Box sx={{ flex: 1 }}>
+                    <Typography fontWeight={700} color="#0f172a">Gợi ý tốt nhất</Typography>
+                    <Typography variant="body2" color="#475569">
+                      Công cụ AI đề xuất voucher phù hợp nhất với giỏ hàng hiện tại của bạn.
+                    </Typography>
+                  </Box>
+                  {bestVoucherLoading ? (
+                    <LinearProgress sx={{ width: { xs: "100%", md: 240 }, borderRadius: 999 }} />
+                  ) : bestVoucher ? (
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} sx={{ width: { xs: "100%", md: 'auto' } }}>
+                      <Box>
+                        <Typography fontWeight={800}>{bestVoucher.code}</Typography>
+                        <Typography color="text.secondary">
                           Giảm {formatCurrency(bestVoucher.discount)}
                         </Typography>
-                        {bestVoucher.voucher?.highlightText && (
-                          <Typography variant="caption" color="primary">
-                            {bestVoucher.voucher.highlightText}
-                          </Typography>
-                        )}
                       </Box>
-                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                      <Stack direction="row" spacing={1}>
                         <Button
                           variant="contained"
                           size="small"
@@ -1920,127 +3075,122 @@ export default function CheckoutPage() {
                           )}
                         </Button>
                         {bestVoucher.voucher && (
-                          <Button variant="text" size="small" onClick={() => showVoucherDetail(bestVoucher.voucher!)}>
-                            Xem chi tiết
+                          <Button variant="outlined" size="small" onClick={() => showVoucherDetail(bestVoucher.voucher!)}>
+                            Chi tiết
                           </Button>
                         )}
                       </Stack>
                     </Stack>
-                  </Paper>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    Không có gợi ý nào phù hợp cho giỏ hàng hiện tại.
-                  </Typography>
-                )}
-                {bestVoucherError && (
-                  <Typography variant="caption" color="error" sx={{ mt: 1, display: "block" }}>
-                    {bestVoucherError}
-                  </Typography>
-                )}
-              </Box>
-            </Stack>
-
-            {voucherLoading ? (
-              <Box sx={{ py: 6, display: "flex", justifyContent: "center" }}>
-                <CircularProgress />
-              </Box>
-            ) : userVouchers.length ? (
-              <Stack spacing={2}>
-                {userVouchers.map((voucher) => {
-                  const applicable = voucher.applicable !== false;
-                  const discountPreview = voucher.discount ?? 0;
-                  return (
-                    <Paper key={voucher._id ?? voucher.code} sx={{ p: 2.5, borderRadius: 3 }} variant="outlined">
-                      <Stack
-                        direction={{ xs: "column", sm: "row" }}
-                        spacing={2}
-                        justifyContent="space-between"
-                        alignItems={{ sm: "center" }}
-                      >
-                        <Box>
-                          <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-                            <Typography variant="h6" fontWeight={800}>
-                              {voucher.code}
-                            </Typography>
-                            {discountPreview > 0 && (
-                              <Chip
-                                label={`Ưu đãi ~ ${formatCurrency(discountPreview)}`}
-                                color="success"
-                                size="small"
-                              />
-                            )}
-                          </Stack>
-                          <Typography color="text.secondary">
-                            Giá trị: {voucher.type === "percent" ? `${voucher.value}%` : formatCurrency(voucher.value)}
-                          </Typography>
-                          <Typography color="text.secondary">
-                            Đơn tối thiểu: {voucher.minOrderValue ? formatCurrency(voucher.minOrderValue) : "Không"}
-                          </Typography>
-                          <Typography color="text.secondary">
-                            Hạn sử dụng: {formatDate(voucher.expiresAt)}
-                          </Typography>
-                          {voucher.reason && !applicable && (
-                            <Typography color="error" variant="body2" sx={{ mt: 0.5 }}>
-                              {voucher.reason}
-                            </Typography>
-                          )}
-                        </Box>
-                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
-                          <Button
-                            variant="outlined"
-                            startIcon={<InfoOutlinedIcon />}
-                            onClick={() => setVoucherDetail(voucher)}
-                          >
-                            Chi tiết
-                          </Button>
-                          <Tooltip
-                            title={!applicable ? voucher.reason || "Không đủ điều kiện" : ""}
-                            disableHoverListener={applicable}
-                          >
-                            <span>
-                              <Button
-                                variant="contained"
-                                onClick={() => handleApplyVoucher(voucher)}
-                                disabled={!applicable || applyingVoucherCode === voucher.code}
-                              >
-                                {applyingVoucherCode === voucher.code ? (
-                                  <CircularProgress size={18} color="inherit" />
-                                ) : (
-                                  "Áp dụng"
-                                )}
-                              </Button>
-                            </span>
-                          </Tooltip>
-                        </Stack>
-                      </Stack>
-                    </Paper>
-                  );
-                })}
-              </Stack>
-            ) : (
-              <Box sx={{ py: 4 }}>
-                <Stack spacing={2} alignItems="center">
-                  <Typography color="text.secondary">
-                    Bạn chưa có voucher cá nhân. Hãy nhập mã hoặc dùng gợi ý bên trên.
-                  </Typography>
-                  <Typography color="text.secondary">
-                    Hiện chưa có ưu đãi nào phù hợp.
-                  </Typography>
+                  ) : (
+                    <Typography color="text.secondary">Không có gợi ý nào phù hợp.</Typography>
+                  )}
+                  {bestVoucherError && (
+                    <Typography variant="caption" color="error" sx={{ mt: 1, display: "block" }}>
+                      {bestVoucherError}
+                    </Typography>
+                  )}
                 </Stack>
-              </Box>
-            )}
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={() => setVoucherDialogOpen(false)}>Đóng</Button>
+              </Paper>
+
+              {voucherLoading ? (
+                <Box sx={{ py: 6, display: "flex", justifyContent: "center" }}>
+                  <CircularProgress />
+                </Box>
+              ) : userVouchers.length ? (
+                <Stack spacing={2.5}>
+                  {userVouchers.map((voucher) => {
+                    const applicable = voucher.applicable !== false;
+                    const discountPreview = voucher.discount ?? 0;
+                    return (
+                      <Paper
+                        key={voucher._id ?? voucher.code}
+                        sx={{
+                          p: 2.5,
+                          borderRadius: 4,
+                          border: `1px solid ${applicable ? 'rgba(16,185,129,0.25)' : 'rgba(248,113,113,0.25)'}`,
+                          background: applicable ? "rgba(16,185,129,0.06)" : "rgba(248,113,113,0.06)",
+                        }}
+                      >
+                        <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
+                          <Box sx={{ flex: 1 }}>
+                            <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+                              <Typography variant="h6" fontWeight={800}>
+                                {voucher.code}
+                              </Typography>
+                              {voucher.freeShipping ? (
+                                <Chip label="Freeship" color="info" size="small" />
+                              ) : (
+                                discountPreview > 0 && (
+                                <Chip label={`Ưu đãi ~ ${formatCurrency(discountPreview)}`} color={applicable ? "success" : "default"} size="small" />
+                                )
+                              )}
+                            </Stack>
+                            <Typography color="text.secondary">
+                              {voucher.freeShipping
+                                ? "Miễn phí toàn bộ phí vận chuyển"
+                                : `Giá trị: ${voucher.type === "percent" ? `${voucher.value}%` : formatCurrency(voucher.value)}`}
+                            </Typography>
+                            <Typography color="text.secondary">
+                              Đơn tối thiểu: {voucher.minOrderValue ? formatCurrency(voucher.minOrderValue) : "Không"}
+                            </Typography>
+                            <Typography color="text.secondary">
+                              Hạn sử dụng: {formatDate(voucher.expiresAt)}
+                            </Typography>
+                            {voucher.reason && !applicable && (
+                              <Typography color="error" variant="body2" sx={{ mt: 0.5 }}>
+                                {voucher.reason}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+                            <Button variant="outlined" startIcon={<InfoOutlinedIcon />} onClick={() => setVoucherDetail(voucher)}>
+                              Chi tiết
+                            </Button>
+                            <Tooltip title={!applicable ? voucher.reason || "Không đủ điều kiện" : ""} disableHoverListener={applicable}>
+                              <span>
+                                <Button variant="contained" onClick={() => handleApplyVoucher(voucher)} disabled={!applicable || applyingVoucherCode === voucher.code}>
+                                  {applyingVoucherCode === voucher.code ? (
+                                    <CircularProgress size={18} color="inherit" />
+                                  ) : (
+                                    "Áp dụng"
+                                  )}
+                                </Button>
+                              </span>
+                            </Tooltip>
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              ) : (
+                <Paper sx={{ p: 3, textAlign: "center", borderRadius: 4, border: "1px dashed rgba(148,163,184,0.6)", background: "rgba(255,255,255,0.65)" }}>
+                  <Typography color="text.secondary">
+                    Bạn chưa có voucher cá nhân. Nhập mã hoặc theo dõi các sự kiện để nhận ưu đãi mới.
+                  </Typography>
+                </Paper>
+              )}
+            </Stack>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: "space-between", px: 4, py: 2.5 }}>
+          <Typography variant="body2" color="text.secondary">
+            {selectedVoucher ? `Voucher đang dùng: ${selectedVoucher.code}` : "Chưa chọn voucher"}
+          </Typography>
+          <Stack direction="row" spacing={1}>
             {selectedVoucher && (
               <Button color="error" onClick={handleRemoveVoucher}>
                 Bỏ voucher
               </Button>
             )}
-          </DialogActions>
-        </Dialog>
+            <Button variant="contained" onClick={() => setVoucherDialogOpen(false)}>
+              Hoàn tất
+            </Button>
+          </Stack>
+        </DialogActions>
+      </Dialog>
 
-        <Dialog
+      <Dialog
           open={Boolean(voucherDetail)}
           onClose={() => setVoucherDetail(null)}
           maxWidth="xs"
@@ -2077,12 +3227,21 @@ export default function CheckoutPage() {
                     {voucherDetailDescription}
                   </Typography>
                 )}
-                <Typography>
-                  Loại ưu đãi: {voucherDetail.type === "percent" ? `${voucherDetail.value}%` : formatCurrency(voucherDetail.value)}
-                </Typography>
-                <Typography>
-                  Giảm tối đa: {voucherDetail.maxDiscount ? formatCurrency(voucherDetail.maxDiscount) : "Không giới hạn"}
-                </Typography>
+                {voucherDetail.freeShipping ? (
+                  <>
+                    <Typography>Loại ưu đãi: Miễn phí toàn bộ phí vận chuyển</Typography>
+                    <Typography>Giảm tối đa: Theo phí vận chuyển thực tế của đơn hàng</Typography>
+                  </>
+                ) : (
+                  <>
+                    <Typography>
+                      Loại ưu đãi: {voucherDetail.type === "percent" ? `${voucherDetail.value}%` : formatCurrency(voucherDetail.value)}
+                    </Typography>
+                    <Typography>
+                      Giảm tối đa: {voucherDetail.maxDiscount ? formatCurrency(voucherDetail.maxDiscount) : "Không giới hạn"}
+                    </Typography>
+                  </>
+                )}
                 <Typography>
                   Đơn tối thiểu: {voucherDetail.minOrderValue ? formatCurrency(voucherDetail.minOrderValue) : "Không"}
                 </Typography>
@@ -2101,8 +3260,8 @@ export default function CheckoutPage() {
           </DialogActions>
         </Dialog>
 
-        {/* Map Dialog */}
-        <Dialog 
+      {/* Map Dialog */}
+      <Dialog 
           open={showMap} 
           onClose={() => setShowMap(false)} 
           maxWidth="md" 
@@ -2126,14 +3285,60 @@ export default function CheckoutPage() {
               Nhấp vào bản đồ để ghim vị trí giao hàng của bạn
             </Typography>
 
-            <MapContainer 
-              center={addressForm.lat && addressForm.lng ? [addressForm.lat, addressForm.lng] : [21.0278, 105.8342]} 
-              zoom={13} 
-              style={{ height: 400, width: '100%', borderRadius: 12, border: '2px solid #e3f2fd' }}
+            <Box
+              sx={{
+                position: 'relative',
+                borderRadius: 3,
+                overflow: 'hidden',
+                border: '2px solid #e3f2fd',
+                boxShadow: '0 25px 60px rgba(23,43,77,0.25)',
+              }}
             >
-              <TileLayer url={`https://api.maptiler.com/maps/streets/{z}/{x}/{y}.png?key=${import.meta.env.VITE_MAPTILER_KEY || 'GHZKttyI4ARcAaCe0j5d'}`} />
-              <LocationMarker />
-            </MapContainer>
+              <MapContainer 
+                center={addressForm.lat && addressForm.lng ? [addressForm.lat, addressForm.lng] : [21.0278, 105.8342]} 
+                zoom={13} 
+                style={{ height: 400, width: '100%' }}
+              >
+                <TileLayer url={buildGoogleTileUrl(dialogMapStyle)} />
+                <LocationMarker />
+                <DraggablePin />
+              </MapContainer>
+
+              <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={dialogMapStyle}
+                  onChange={(_, value) => {
+                    if (value) setDialogMapStyle(value);
+                  }}
+                  sx={{
+                    background: 'rgba(15,23,42,0.85)',
+                    borderRadius: 999,
+                    '& .MuiToggleButton-root': {
+                      color: 'rgba(255,255,255,0.75)',
+                      border: 'none',
+                      textTransform: 'none',
+                      px: 1.5,
+                      '&.Mui-selected': {
+                        background: 'linear-gradient(120deg,#2563eb,#7c3aed)',
+                        color: '#fff',
+                      },
+                    },
+                  }}
+                >
+                  {mapLayerOptions.map((option) => (
+                    <ToggleButton key={option.value} value={option.value}>
+                      <Stack direction="row" spacing={0.5} alignItems="center">
+                        {option.icon}
+                        <Typography variant="caption">{option.label}</Typography>
+                      </Stack>
+                    </ToggleButton>
+                  ))}
+                </ToggleButtonGroup>
+              </Box>
+
+            </Box>
 
             <Paper elevation={0} sx={{ p: 2, mt: 2, background: '#f8fbff', borderRadius: 2 }}>
               <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1.5 }}>
@@ -2228,7 +3433,6 @@ export default function CheckoutPage() {
             </Button>
           </DialogActions>
         </Dialog>
-      </Container>
-    </Box>
+    </>
   );
 }

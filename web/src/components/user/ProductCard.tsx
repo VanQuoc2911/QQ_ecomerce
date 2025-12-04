@@ -3,16 +3,16 @@ import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
 import FlashOnIcon from "@mui/icons-material/FlashOn";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import {
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  IconButton,
-  Rating,
-  Stack,
-  Tooltip,
-  Typography,
+    Box,
+    Button,
+    Card,
+    CardContent,
+    Chip,
+    IconButton,
+    Rating,
+    Stack,
+    Tooltip,
+    Typography,
 } from "@mui/material";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
@@ -34,7 +34,7 @@ interface Props {
 
 export default function ProductCard({ product, onFavoriteToggle }: Props) {
   const navigate = useNavigate();
-  const { user, setUser } = useAuth();
+  const { user, setUser, role } = useAuth();
   const mediaRef = useRef<HTMLDivElement>(null);
   const [fly, setFly] = useState(false);
   const [flyPos, setFlyPos] = useState({ x: 0, y: 0 });
@@ -69,6 +69,12 @@ export default function ProductCard({ product, onFavoriteToggle }: Props) {
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!mediaRef.current) return;
+
+    // Sellers are not allowed to purchase
+    if (role === "seller") {
+      toast.error("Tài khoản seller không được phép mua hàng.", { position: "top-right", autoClose: 3000 });
+      return;
+    }
 
     // Nếu chưa đăng nhập -> mở modal đăng nhập
     if (!user) {
@@ -129,6 +135,12 @@ export default function ProductCard({ product, onFavoriteToggle }: Props) {
   // Mua ngay - đồng bộ với số lượng trong giỏ hàng nếu đã có
   const handleBuyNow = async (e: React.MouseEvent) => {
     e.stopPropagation();
+
+    // Sellers are not allowed to purchase
+    if (role === "seller") {
+      toast.error("Tài khoản seller không được phép mua hàng.", { position: "top-right", autoClose: 3000 });
+      return;
+    }
 
     // Nếu chưa đăng nhập -> mở modal đăng nhập
     if (!user) {

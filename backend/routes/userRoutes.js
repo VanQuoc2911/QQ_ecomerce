@@ -1,4 +1,5 @@
 import express from "express";
+import Category from "../models/Category.js";
 import User from "../models/User.js";
 import { getNextId } from "../utils/getNextId.js";
 
@@ -69,6 +70,17 @@ const getUserById = async (req, res) => {
 
 router.get("/users/:id", getUserById);
 router.get("/:id", getUserById);
+
+// Public: list categories
+router.get("/categories", async (req, res) => {
+  try {
+    const categories = await Category.find().sort({ id: 1 }).lean();
+    res.json(categories);
+  } catch (err) {
+    console.error("GET /categories error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 router.post("/", async (req, res) => {
   try {

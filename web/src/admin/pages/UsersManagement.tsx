@@ -333,7 +333,7 @@ export default function UsersManagement() {
             </Button>
             <Button
               variant="outlined"
-              onClick={() => navigate("/admin/seller-requests")}
+              onClick={() => navigate("/seller-requests")}
               sx={{
                 borderRadius: 3,
                 textTransform: "none",

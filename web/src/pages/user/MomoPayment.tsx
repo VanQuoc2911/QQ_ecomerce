@@ -138,9 +138,9 @@ export default function MomoPaymentPage() {
                 mb: 3,
               }}
             >
-              <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
-                ⏳ Chờ xác nhận thanh toán
-              </Typography>
+                <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
+                  ⏳ Chờ thanh toán
+                </Typography>
               <Typography variant="body2" sx={{ mb: 1 }}>
                 Bạn đã hoàn thành chuyển khoản. Vui lòng chờ seller xác nhận đã
                 nhận được tiền.

@@ -414,6 +414,7 @@ export const updateOrderStatus = async (req, res) => {
       "pending",
       "payment_pending",
       "processing",
+      "awaiting_shipment",
       "shipping",
       "completed",
       "cancelled",
@@ -421,7 +422,12 @@ export const updateOrderStatus = async (req, res) => {
     const forwardMap = {
       pending: ["payment_pending", "cancelled"],
       payment_pending: ["processing", "cancelled"],
-      processing: ["shipping", "completed", "cancelled"],
+      // seller moves to processing when preparing order, then should only mark as awaiting_shipment (prepared) or cancel.
+      // Subsequent shipping status transitions are handled by shippers.
+      processing: ["awaiting_shipment", "cancelled"],
+      // awaiting_shipment means seller has prepared and waits for shipper to pick up
+      // Sellers must NOT move orders into shipping; only shippers can progress shipping statuses.
+      awaiting_shipment: ["cancelled"],
       shipping: ["completed", "cancelled"],
       completed: [],
       cancelled: [],
@@ -481,6 +487,18 @@ export const updateOrderStatus = async (req, res) => {
           status,
           message: `Order status updated to ${status}`,
         });
+        // If seller marks order as awaiting_shipment, notify shippers that an available order exists
+        if (status === "awaiting_shipment") {
+          try {
+            io.emit("order:awaiting_shipment", {
+              orderId: order._id,
+              status,
+              message: "Một đơn hàng đã sẵn sàng chờ giao",
+            });
+          } catch (e) {
+            console.warn("Failed to emit awaiting_shipment event", e);
+          }
+        }
       }
     } catch (emitErr) {
       console.error("updateOrderStatus: failed to emit socket event", emitErr);
@@ -514,10 +532,10 @@ export const confirmPayment = async (req, res) => {
       return res.status(403).json({ message: "Unauthorized" });
     }
 
-    // Only allow confirming if order is in payment_pending status
-    if (order.status !== "payment_pending") {
+    // Only allow confirming if order is waiting for payment
+    if (!["payment_pending", "pending"].includes(order.status)) {
       return res.status(400).json({
-        message: `Cannot confirm payment for order with status: ${order.status}. Order must be in "payment_pending" status.`,
+        message: `Cannot confirm payment for order with status: ${order.status}. Order must be awaiting payment.`,
       });
     }
 
@@ -599,7 +617,9 @@ export const markAsPaid = async (req, res) => {
       });
     }
 
-    order.status = "processing";
+    // Mark order as payment_pending so seller can confirm payment manually
+    order.status = "payment_pending";
+    // keep paymentDeadline cleared and not expired
     order.paymentDeadline = null;
     order.paymentExpired = false;
     await order.save();
@@ -609,8 +629,8 @@ export const markAsPaid = async (req, res) => {
       const Notification = (await import("../models/Notification.js")).default;
       const notif = new Notification({
         userId: order.sellerId,
-        title: "Khách đã thanh toán",
-        message: `Khách hàng đã xác nhận thanh toán cho đơn ${order._id}. Vui lòng chuẩn bị giao hàng.`,
+        title: "Khách đã xác nhận thanh toán",
+        message: `Khách hàng đã xác nhận thanh toán cho đơn ${order._id}. Vui lòng kiểm tra và xác nhận.`,
         type: "payment",
         read: false,
         refId: order._id,
@@ -628,8 +648,8 @@ export const markAsPaid = async (req, res) => {
       if (io) {
         io.to(order.sellerId.toString()).emit("order:paymentConfirmed", {
           orderId: order._id,
-          status: "processing",
-          message: "Khách đã xác nhận thanh toán",
+          status: "payment_pending",
+          message: "Khách đã xác nhận thanh toán (chờ seller xác nhận)",
         });
       }
     } catch (emitErr) {
@@ -663,15 +683,7 @@ export const changePaymentMethod = async (req, res) => {
     }
 
     const normalizedDecision = String(decision || "confirm").toLowerCase();
-    if (
-      paymentMethod === "cod" &&
-      !["confirm", "cancel"].includes(normalizedDecision)
-    ) {
-      return res.status(400).json({
-        message: "Decision không hợp lệ. Vui lòng chọn confirm hoặc cancel.",
-      });
-    }
-
+    // Load order and validate ownership
     const order = await Order.findById(orderId);
     if (!order) return res.status(404).json({ message: "Order not found" });
 

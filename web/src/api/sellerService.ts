@@ -57,6 +57,9 @@ export interface Voucher {
   highlightText?: string;
   sellerId?: string;
   shopId?: string;
+  aiImageUrl?: string;
+  aiDescription?: string;
+  freeShipping?: boolean;
 }
 
 export interface SellerReviewUser {
@@ -128,6 +131,9 @@ export const sellerService = {
     targetCategories?: string[];
     targetProducts?: string[];
     highlightText?: string;
+    aiImageUrl?: string;
+    aiDescription?: string;
+    freeShipping?: boolean;
   }) {
     const { data } = await api.post('/api/vouchers/seller', payload);
     return data;
@@ -152,6 +158,9 @@ export const sellerService = {
       targetCategories?: string[];
       targetProducts?: string[];
       highlightText?: string;
+      aiImageUrl?: string;
+      aiDescription?: string;
+      freeShipping?: boolean;
     }>
   ) {
     const { data } = await api.put(`/api/vouchers/seller/${id}`, payload);

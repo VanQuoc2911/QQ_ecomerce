@@ -5,33 +5,32 @@ import NotificationsIcon from "@mui/icons-material/Notifications";
 import PersonIcon from "@mui/icons-material/Person";
 import SearchIcon from "@mui/icons-material/Search";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import {
-  AppBar,
-  Avatar,
-  Badge,
-  Box,
-  Button,
-  CircularProgress,
-  Container,
-  Divider,
-  Drawer,
-  IconButton,
-  InputAdornment,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Menu,
-  MenuItem,
-  Paper,
-  TextField,
-  Toolbar,
-  Typography,
-  useMediaQuery,
-  useTheme,
+    AppBar,
+    Avatar,
+    Badge,
+    Box,
+    Button,
+    CircularProgress,
+    Container,
+    Divider,
+    Drawer,
+    IconButton,
+    InputAdornment,
+    List,
+    ListItem,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
+    Menu,
+    MenuItem,
+    Paper,
+    TextField,
+    Toolbar,
+    Typography,
+    useMediaQuery,
+    useTheme,
 } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -42,6 +41,7 @@ import LoginModal from "../../components/auth/LoginModal";
 import RegisterModal from "../../components/auth/RegisterModal";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/useSocket";
+import RobotWaveIcon from "../chat/RobotWaveIcon";
 import NotificationDetail from "./NotificationDetail";
 
 type CartItem = CartResponse["items"][number];
@@ -200,6 +200,8 @@ export default function Navbar() {
       window.removeEventListener("profileUpdated", handleProfileUpdated);
     };
   }, []);
+
+  const isSellerOnly = import.meta.env.VITE_SELLER_ONLY === "true";
 
   // Socket: listen for new notification events
   const { socket } = useSocket();
@@ -733,7 +735,14 @@ export default function Navbar() {
                       Đăng nhập
                     </Button>
                     <Button
-                      onClick={() => setRegisterOpen(true)}
+                      onClick={() => {
+                        if (isSellerOnly) {
+                          // In seller-only mode, registration is disabled
+                          window.alert("Chế độ người bán đang bật — đăng ký tài khoản người dùng bị vô hiệu hóa.");
+                          return;
+                        }
+                        setRegisterOpen(true);
+                      }}
                       sx={{
                         background: "linear-gradient(120deg, #1d4ed8 0%, #38bdf8 100%)",
                         color: "#fff",
@@ -805,7 +814,7 @@ export default function Navbar() {
                     },
                   }}
                 >
-                  <SmartToyIcon sx={{ color: iconAccents.ai.main, fontSize: 26 }} />
+                  <RobotWaveIcon size={32} />
                 </IconButton>
 
                 {/* Giỏ hàng với hiệu ứng */}
@@ -1002,7 +1011,7 @@ export default function Navbar() {
                 }}
               >
                 <ListItemIcon sx={{ color: iconAccents.ai.main, minWidth: 40 }}>
-                  <SmartToyIcon />
+                  <RobotWaveIcon size={28} animated={false} shadow={false} />
                 </ListItemIcon>
                 <ListItemText
                   primary="Chat AI"
@@ -1105,9 +1114,14 @@ export default function Navbar() {
                 >
                   Đăng nhập
                 </Button>
-                <Button
+                  <Button
                   fullWidth
                   onClick={() => {
+                    if (isSellerOnly) {
+                      window.alert("Chế độ người bán đang bật — đăng ký tài khoản người dùng bị vô hiệu hóa.");
+                      setDrawerOpen(false);
+                      return;
+                    }
                     setRegisterOpen(true);
                     setDrawerOpen(false);
                   }}

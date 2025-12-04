@@ -85,6 +85,14 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       window.dispatchEvent(new CustomEvent("orderPlaced", { detail: data }));
     });
 
+    // Listen for categories updates from admin
+    socket.on("categories:updated", (categories: any[]) => {
+      // Dispatch a window event so pages/components can reactively refresh
+      window.dispatchEvent(new CustomEvent("categoriesUpdated", { detail: categories }));
+      // Optionally, show a small toast when an admin updates categories
+      toast.info("Danh mục sản phẩm đã được cập nhật");
+    });
+
     socket.on("disconnect", () => {
       console.log("Socket disconnected");
       connectedRef.current = false;

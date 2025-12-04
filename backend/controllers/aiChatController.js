@@ -1,9 +1,14 @@
+import jwt from "jsonwebtoken";
+import { extractTokenFromHeader } from "../middleware/authMiddleware.js";
 import Product from "../models/Product.js";
+import User from "../models/User.js";
+import { buildAIContext } from "../services/aiContextBuilder.js";
 import { getAvailableModels } from "../utils/aiModelManager.js";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const getApiKey = () => process.env.GROQ_API_KEY || "";
+const JWT_SECRET = process.env.JWT_SECRET || "secret";
 
 export const decommissionedModels = new Set();
 
@@ -126,6 +131,46 @@ const findProductsAndCategories = async (queryText, limit = 6) => {
   }
 };
 
+const resolveRequestIdentity = async (req) => {
+  try {
+    const token = extractTokenFromHeader(req) || req.cookies?.token;
+    if (!token) return null;
+    if (token === "admin-token") {
+      return {
+        id: "000000000000000000000000",
+        role: "admin",
+        name: "Admin",
+        email: "admin@example.com",
+      };
+    }
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const userId = decoded.userId || decoded.id || decoded._id;
+    if (!userId) return null;
+    const profile = await User.findById(userId)
+      .select("name role email")
+      .lean();
+    if (profile) {
+      return {
+        id: profile._id?.toString(),
+        role: profile.role || decoded.role || "user",
+        name: profile.name || decoded.name || null,
+        email: profile.email || decoded.email || null,
+      };
+    }
+    return {
+      id: userId,
+      role: decoded.role || "user",
+      name: decoded.name || null,
+      email: decoded.email || null,
+    };
+  } catch (err) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("resolveRequestIdentity failed", err.message);
+    }
+    return null;
+  }
+};
+
 export const sendAIMessage = async (req, res) => {
   try {
     const GROQ_API_KEY = getApiKey();
@@ -133,6 +178,8 @@ export const sendAIMessage = async (req, res) => {
       message,
       context = "user_support",
       includeSuggestions = true,
+      role: roleFromBody,
+      history: rawHistory,
     } = req.body || {};
     const shouldReturnSuggestions = includeSuggestions !== false;
     if (!message || typeof message !== "string" || message.trim().length === 0)
@@ -160,6 +207,39 @@ export const sendAIMessage = async (req, res) => {
         .status(500)
         .json({ message: "AI service not configured (missing GROQ_API_KEY)" });
     }
+
+    const resolvedUser = await resolveRequestIdentity(req);
+    const inferredRoleFromContext =
+      context === "seller_support"
+        ? "seller"
+        : context === "shipper_support"
+        ? "shipper"
+        : context === "admin_support"
+        ? "admin"
+        : "user";
+    const effectiveRole =
+      resolvedUser?.role || roleFromBody || inferredRoleFromContext || "user";
+
+    const normalizedHistory = Array.isArray(rawHistory)
+      ? rawHistory
+          .slice(-10)
+          .map((entry) => {
+            const role = entry?.role === "assistant" ? "assistant" : "user";
+            const content = String(entry?.content || "").trim();
+            if (!content) return null;
+            return {
+              role,
+              content: content.slice(0, 2000),
+            };
+          })
+          .filter(Boolean)
+      : [];
+
+    const roleContext = await buildAIContext({
+      role: effectiveRole,
+      userId: resolvedUser?.id || null,
+      userName: resolvedUser?.name || null,
+    });
 
     const basePrompt = SYSTEM_PROMPTS[context] || SYSTEM_PROMPTS.user_support;
     const systemPrompt = `${STORE_KNOWLEDGE}\n\n${basePrompt}`;
@@ -210,6 +290,13 @@ export const sendAIMessage = async (req, res) => {
       });
     }
 
+    const roleContextMessage = roleContext?.text
+      ? {
+          role: "system",
+          content: `ROLE_CONTEXT (${effectiveRole}):\n${roleContext.text}\n\nQUY TẮC: Chỉ sử dụng dữ liệu trong ROLE_CONTEXT cho các câu trả lời cá nhân hóa và không tiết lộ thông tin không liên quan.`,
+        }
+      : null;
+
     let response = null;
     let lastErrorText = null;
     let successfulModel = null;
@@ -226,6 +313,7 @@ export const sendAIMessage = async (req, res) => {
             model,
             messages: [
               { role: "system", content: systemPrompt },
+              ...(roleContextMessage ? [roleContextMessage] : []),
               {
                 role: "system",
                 content: `BACKEND_PRODUCTS:${JSON.stringify(
@@ -239,8 +327,9 @@ export const sendAIMessage = async (req, res) => {
                   }))
                 )}\n\nBACKEND_CATEGORIES:${JSON.stringify(
                   preFetchedSuggestions.categories
-                )}\n\nQUY TẮC NGHIÊM NGẶT:\n1. Chỉ trả lời dựa trên dữ liệu nội bộ QQ (STORE_KNOWLEDGE + BACKEND_PRODUCTS + BACKEND_CATEGORIES).\n2. Nếu thiếu thông tin, trả lời đúng câu: "Tôi chưa tìm thấy thông tin trong hệ thống QQ. Bạn vui lòng liên hệ QQ Support."\n3. Không trích dẫn nguồn bên ngoài, không suy đoán hoặc tạo dữ liệu mới.\n4. Khi gợi ý sản phẩm, chỉ dùng các mục trong BACKEND_PRODUCTS và hiển thị tên + giá từ trường priceText.\n5. Luôn trả lời bằng tiếng Việt, giọng điệu thân thiện, súc tích.`,
+                )}\n\nQUY TẮC NGHIÊM NGẶT:\n1. Chỉ trả lời dựa trên dữ liệu nội bộ QQ (STORE_KNOWLEDGE + ROLE_CONTEXT + BACKEND_PRODUCTS + BACKEND_CATEGORIES).\n2. Nếu thiếu thông tin, trả lời đúng câu: "Tôi chưa tìm thấy thông tin trong hệ thống QQ. Bạn vui lòng liên hệ QQ Support."\n3. Không trích dẫn nguồn bên ngoài, không suy đoán hoặc tạo dữ liệu mới.\n4. Khi gợi ý sản phẩm, chỉ dùng các mục trong BACKEND_PRODUCTS và hiển thị tên + giá từ trường priceText.\n5. Luôn trả lời bằng tiếng Việt, giọng điệu thân thiện, súc tích.`,
               },
+              ...(normalizedHistory || []),
               { role: "user", content: message },
             ],
             max_tokens: 500,
@@ -367,14 +456,26 @@ export const sendAIMessage = async (req, res) => {
         },
         unverifiedMentions: Array.from(new Set(unverifiedMentions)),
         model: modelUsed,
+        context: roleContext?.clientSummary || null,
+        personalization: {
+          role: effectiveRole,
+          identified: Boolean(resolvedUser?.id),
+        },
       };
       if (process.env.NODE_ENV !== "production")
         responsePayload._debug = suggestionsResult._debug || null;
       return res.status(200).json(responsePayload);
     }
-    return res
-      .status(200)
-      .json({ role: "assistant", content: aiResponse, model: modelUsed });
+    return res.status(200).json({
+      role: "assistant",
+      content: aiResponse,
+      model: modelUsed,
+      context: roleContext?.clientSummary || null,
+      personalization: {
+        role: effectiveRole,
+        identified: Boolean(resolvedUser?.id),
+      },
+    });
   } catch (err) {
     console.error("sendAIMessage error:", err);
     res.status(500).json({ message: "Server error", error: err.message });

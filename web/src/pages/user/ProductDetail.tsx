@@ -13,25 +13,25 @@ import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
 import {
-  Alert,
-  Avatar,
-  Box,
-  Breadcrumbs,
-  Button,
-  Chip,
-  CircularProgress,
-  Container,
-  Divider,
-  Fade,
-  IconButton,
-  Link,
-  Rating,
-  Skeleton,
-  Stack,
-  TextField,
-  Tooltip,
-  Typography,
-  Zoom,
+    Alert,
+    Avatar,
+    Box,
+    Breadcrumbs,
+    Button,
+    Chip,
+    CircularProgress,
+    Container,
+    Divider,
+    Fade,
+    IconButton,
+    Link,
+    Rating,
+    Skeleton,
+    Stack,
+    TextField,
+    Tooltip,
+    Typography,
+    Zoom,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -129,7 +129,7 @@ const SectionCard = ({ title, subtitle, action, children }: SectionCardProps) =>
 export default function ProductDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user, setUser } = useAuth();
+  const { user, setUser, role } = useAuth();
 
   const [product, setProduct] = useState<ApiProduct | null>(null);
   const [loading, setLoading] = useState(true);
@@ -326,6 +326,11 @@ export default function ProductDetail() {
       requireLogin();
       return;
     }
+    // Sellers cannot purchase
+    if (role === "seller") {
+      toast.error("Tài khoản seller không được phép mua hàng.");
+      return;
+    }
     if (product.stock === 0) {
       toast.warning("Sản phẩm đã tạm hết hàng");
       return;
@@ -358,6 +363,11 @@ export default function ProductDetail() {
     if (!product) return;
     if (!user) {
       requireLogin();
+      return;
+    }
+    // Sellers cannot purchase
+    if (role === "seller") {
+      toast.error("Tài khoản seller không được phép mua hàng.");
       return;
     }
     if (product.stock === 0) {

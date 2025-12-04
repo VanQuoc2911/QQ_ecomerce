@@ -1,5 +1,4 @@
 import SendIcon from "@mui/icons-material/Send";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
 import {
     Box,
     Button,
@@ -12,12 +11,16 @@ import {
     Divider,
     Paper,
     TextField,
+    Tooltip,
     Typography,
 } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../api/axios";
 import { cartService } from "../../api/cartService";
+import RobotWaveIcon from "../../components/chat/RobotWaveIcon";
+import { useAuth } from "../../context/AuthContext";
 
 type AIMessage = {
   role: "user" | "assistant";
@@ -41,9 +44,16 @@ type AIServerResp = {
   role?: string;
   content: string;
   suggestions?: Suggestion;
+  context?: Array<{ title: string; items: string[] }>;
+  personalization?: {
+    role?: string;
+    identified?: boolean;
+  } | null;
 };
 
 export default function SellerAIChatPage() {
+  const location = useLocation();
+  const { role } = useAuth();
   const [messages, setMessages] = useState<AIMessage[]>([
     {
       role: "assistant",
@@ -55,6 +65,7 @@ export default function SellerAIChatPage() {
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion>({ products: [], categories: [] });
   const [addingProductId, setAddingProductId] = useState<string | null>(null);
+  const [assistantMeta, setAssistantMeta] = useState<{ role?: string; identified?: boolean } | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
 
   const handleSend = async () => {
@@ -74,6 +85,14 @@ export default function SellerAIChatPage() {
       const { data } = await api.post<AIServerResp>("/api/ai-chat", {
         message: text,
         context: "seller_support",
+        role: role || "seller",
+        metadata: {
+          route: location.pathname,
+          search: location.search,
+          source: "seller_ai_chat_page",
+          title:
+            typeof document !== "undefined" && document?.title ? document.title : undefined,
+        },
       });
 
       const aiMessage: AIMessage = {
@@ -86,6 +105,7 @@ export default function SellerAIChatPage() {
 
       if (data?.suggestions) setSuggestions(data.suggestions as Suggestion);
       else setSuggestions({ products: [], categories: [] });
+      setAssistantMeta(data?.personalization ?? null);
     } catch (err) {
       console.error("AI chat error:", err);
       const errorMessage: AIMessage = {
@@ -136,13 +156,32 @@ export default function SellerAIChatPage() {
             p: 2,
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: 1,
           }}
         >
-          <SmartToyIcon fontSize="large" />
-          <Typography variant="h6" fontWeight={700}>
-            Trợ lý AI - Hỗ trợ Người Bán
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <RobotWaveIcon size={44} />
+            <Typography variant="h6" fontWeight={700}>
+              Trợ lý AI - Hỗ trợ Người Bán
+            </Typography>
+          </Box>
+          {assistantMeta && (
+            <Tooltip
+              title={
+                assistantMeta.identified
+                  ? "Đang dùng dữ liệu bán hàng của bạn"
+                  : "Chưa xác thực người dùng"
+              }
+            >
+              <Chip
+                size="small"
+                variant="outlined"
+                sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.6)" }}
+                label={`Vai trò: ${assistantMeta.role || role || "seller"}`}
+              />
+            </Tooltip>
+          )}
         </Box>
 
         {/* Messages */}

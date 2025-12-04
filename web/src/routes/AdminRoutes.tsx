@@ -7,7 +7,9 @@ import { useAuth } from "../context/AuthContext";
 // ✅ Import đầy đủ các trang Admin
 import AdminDashboard from "../admin/pages/AdminDashboard";
 import AdminProductReview from "../admin/pages/AdminProductReview";
+import AdminReports from "../admin/pages/AdminReports";
 import AdminSellerRequests from "../admin/pages/AdminSellerRequests";
+import AdminShipperRequests from "../admin/pages/AdminShipperRequests";
 import AdminSettings from "../admin/pages/SystemSettings";
 import UsersManagement from "../admin/pages/UsersManagement";
 import SellerEditProduct from "../pages/seller/SellerEditProduct";
@@ -41,9 +43,14 @@ export default function AdminRoutes() {
 
       {/* ✅ Quản lý yêu cầu người bán */}
       <Route path="seller-requests" element={<AdminSellerRequests />} />
+      {/* ✅ Quản lý yêu cầu shipper */}
+      <Route path="shipper-requests" element={<AdminShipperRequests />} />
 
       {/* ✅ Quản lý người dùng */}
       <Route path="users" element={<UsersManagement />} />
+
+      {/* ✅ Báo cáo / Report center */}
+      <Route path="reports" element={<AdminReports />} />
 
       {/* ✅ Cài đặt Admin */}
       <Route path="settings" element={<AdminSettings />} />

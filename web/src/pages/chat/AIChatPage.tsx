@@ -1,28 +1,45 @@
 import SendIcon from "@mui/icons-material/Send";
-import SmartToyIcon from "@mui/icons-material/SmartToy";
 import {
-    Box,
-    Button,
-    Card,
-    CardActions,
-    CardContent,
-    CardMedia,
-    Chip,
-    CircularProgress,
-    Divider,
-    Paper,
-    TextField,
-    Typography,
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardActions,
+  CardContent,
+  CardMedia,
+  Chip,
+  CircularProgress,
+  Divider,
+  Paper,
+  TextField,
+  Tooltip,
+  Typography,
 } from "@mui/material";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../api/axios";
 import { cartService } from "../../api/cartService";
+import RobotWaveIcon from "../../components/chat/RobotWaveIcon";
+import { useAuth } from "../../context/AuthContext";
+
+const productSuggestionKeywords = [
+  "sản phẩm mới",
+  "gợi ý sản phẩm",
+  "sản phẩm nổi bật",
+  "sản phẩm hot",
+  "sản phẩm bán chạy",
+];
+
+const shouldSuggestProducts = (content = "") => {
+  const normalized = content.toLowerCase();
+  return productSuggestionKeywords.some((keyword) => normalized.includes(keyword));
+};
 
 type AIMessage = {
   role: "user" | "assistant";
   content: string;
-  timestamp?: Date;
+  timestamp?: Date | string;
 };
 
 type Suggestion = {
@@ -41,39 +58,77 @@ type AIServerResp = {
   role?: string;
   content: string;
   suggestions?: Suggestion;
+  context?: Array<{ title: string; items: string[] }>;
+  personalization?: {
+    role?: string;
+    identified?: boolean;
+  } | null;
 };
 
 export default function AIChatPage() {
-  const [messages, setMessages] = useState<AIMessage[]>([
-    {
-      role: "assistant",
-      content: "Xin chào! 👋 Tôi là trợ lý AI của cửa hàng. Tôi có thể giúp bạn với các câu hỏi về sản phẩm, đơn hàng, vận chuyển và chính sách. Bạn cần giúp gì?",
-      timestamp: new Date(),
-    },
+  const location = useLocation();
+  const { role, user } = useAuth();
+  const buildGreetingMessage = () => ({
+    role: "assistant" as const,
+    content:
+      "Xin chào! 👋 Tôi là trợ lý AI của cửa hàng. Tôi có thể giúp bạn với các câu hỏi về sản phẩm, đơn hàng, vận chuyển và chính sách. Bạn cần giúp gì?",
+    timestamp: new Date(),
+  });
+  const [messages, setMessages] = useState<AIMessage[]>(() => [
+    buildGreetingMessage(),
   ]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<Suggestion>({ products: [], categories: [] });
-    const [addingProductId, setAddingProductId] = useState<string | null>(null);
+  const [addingProductId, setAddingProductId] = useState<string | null>(null);
+  const [assistantMeta, setAssistantMeta] = useState<{ role?: string; identified?: boolean } | null>(null);
+  const [storedHistory, setStoredHistory] = useState<AIMessage[] | null>(null);
+  const [historyChoiceMade, setHistoryChoiceMade] = useState(true);
+  const [historyInitialized, setHistoryInitialized] = useState(false);
+  const [showProductSuggestions, setShowProductSuggestions] = useState(false);
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const historyStorageKey = useMemo(() => {
+    const userId = user?._id || user?.id || "guest";
+    return `qq_ai_chat_history_${userId}`;
+  }, [user?._id, user?.id]);
 
   const handleSend = async () => {
-    if (!text.trim() || loading) return;
+    if (!text.trim() || loading || !historyChoiceMade) return;
+
+    const trimmedContent = text.trim();
+    const wantsProductSuggestions = shouldSuggestProducts(trimmedContent);
 
     const userMessage: AIMessage = {
       role: "user",
-      content: text,
+      content: trimmedContent,
       timestamp: new Date(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    const recentHistory = messages.slice(-10).map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    const nextMessages: AIMessage[] = [...messages, userMessage];
+
+    setMessages(nextMessages);
     setText("");
     setLoading(true);
+    setShowProductSuggestions(false);
 
     try {
       const { data } = await api.post<AIServerResp>("/api/ai-chat", {
-        message: text,
+        message: trimmedContent,
         context: "user_support",
+        role: role || "user",
+        history: recentHistory,
+        metadata: {
+          route: location.pathname,
+          search: location.search,
+          source: "ai_chat_page",
+          title:
+            typeof document !== "undefined" && document?.title ? document.title : undefined,
+        },
       });
 
       const aiMessage: AIMessage = {
@@ -85,8 +140,15 @@ export default function AIChatPage() {
       setMessages((prev) => [...prev, aiMessage]);
 
       // If backend returned structured suggestions, set them so UI can render cards
-      if (data?.suggestions) setSuggestions(data.suggestions as Suggestion);
-      else setSuggestions({ products: [], categories: [] });
+      const nextSuggestions = (data?.suggestions || {
+        products: [],
+        categories: [],
+      }) as Suggestion;
+      setSuggestions(nextSuggestions);
+      setShowProductSuggestions(
+        wantsProductSuggestions && (nextSuggestions.products?.length ?? 0) > 0
+      );
+      setAssistantMeta(data?.personalization ?? null);
     } catch (err) {
       console.error("AI chat error:", err);
       const errorMessage: AIMessage = {
@@ -103,7 +165,78 @@ export default function AIChatPage() {
 
   useEffect(() => {
     messagesRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
+  }, [messages, historyChoiceMade]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setHistoryInitialized(false);
+    setHistoryChoiceMade(true);
+    setStoredHistory(null);
+    try {
+      const stored = window.localStorage.getItem(historyStorageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const normalized = parsed.map((msg: AIMessage) => ({
+            ...msg,
+            timestamp: msg.timestamp ? new Date(msg.timestamp) : undefined,
+          }));
+          setStoredHistory(normalized);
+          setHistoryChoiceMade(false);
+          setHistoryInitialized(true);
+          return;
+        }
+      }
+      setStoredHistory(null);
+      setHistoryChoiceMade(true);
+      setHistoryInitialized(true);
+    } catch (error) {
+      console.warn("Failed to load chat history", error);
+      setStoredHistory(null);
+      setHistoryChoiceMade(true);
+      setHistoryInitialized(true);
+    }
+  }, [historyStorageKey]);
+
+  useEffect(() => {
+    if (!historyChoiceMade || !historyInitialized || typeof window === "undefined") return;
+    try {
+      const serialized = JSON.stringify(
+        messages.map((msg) => ({
+          ...msg,
+          timestamp: msg.timestamp
+            ? new Date(msg.timestamp).toISOString()
+            : undefined,
+        }))
+      );
+      window.localStorage.setItem(historyStorageKey, serialized);
+    } catch (error) {
+      console.warn("Failed to persist chat history", error);
+    }
+  }, [messages, historyChoiceMade, historyStorageKey, historyInitialized]);
+
+  const handleContinueHistory = () => {
+    if (storedHistory?.length) {
+      setMessages(storedHistory.map((msg) => ({ ...msg })));
+    }
+    setHistoryChoiceMade(true);
+    setShowProductSuggestions(false);
+  };
+
+  const handleStartNewConversation = () => {
+    setStoredHistory(null);
+    setHistoryChoiceMade(true);
+    setMessages([buildGreetingMessage()]);
+    setSuggestions({ products: [], categories: [] });
+    setShowProductSuggestions(false);
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(historyStorageKey);
+      }
+    } catch (error) {
+      console.warn("Failed to clear chat history", error);
+    }
+  };
 
   return (
     <Box
@@ -137,13 +270,32 @@ export default function AIChatPage() {
             p: 2,
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: 1,
           }}
         >
-          <SmartToyIcon fontSize="large" />
-          <Typography variant="h6" fontWeight={700}>
-            Trợ lý AI - Hỗ trợ 24/7
-          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <RobotWaveIcon size={44} />
+            <Typography variant="h6" fontWeight={700}>
+              Trợ lý AI - Hỗ trợ 24/7
+            </Typography>
+          </Box>
+          {assistantMeta && (
+            <Tooltip
+              title={
+                assistantMeta.identified
+                  ? "Đang sử dụng dữ liệu của bạn"
+                  : "Chưa xác thực người dùng"
+              }
+            >
+              <Chip
+                size="small"
+                variant="outlined"
+                sx={{ color: "#fff", borderColor: "rgba(255,255,255,0.6)" }}
+                label={`Vai trò: ${assistantMeta.role || role || "user"}`}
+              />
+            </Tooltip>
+          )}
         </Box>
 
         {/* Messages */}
@@ -157,6 +309,30 @@ export default function AIChatPage() {
             gap: 2,
           }}
         >
+          {!historyChoiceMade && storedHistory?.length && (
+            <Alert
+              severity="info"
+              sx={{
+                borderRadius: 2,
+                background: "#eef2ff",
+                border: "1px solid rgba(99,102,241,0.3)",
+                alignItems: "center",
+                gap: 1,
+              }}
+              action={
+                <Box sx={{ display: "flex", gap: 1 }}>
+                  <Button size="small" variant="contained" onClick={handleContinueHistory}>
+                    Tiếp tục
+                  </Button>
+                  <Button size="small" variant="outlined" onClick={handleStartNewConversation}>
+                    Trò chuyện mới
+                  </Button>
+                </Box>
+              }
+            >
+              Bạn có cuộc trò chuyện trước với trợ lý AI. Bạn muốn tiếp tục hay bắt đầu cuộc trò chuyện mới?
+            </Alert>
+          )}
           {messages.map((msg, i) => (
             <Box
               key={i}
@@ -193,7 +369,7 @@ export default function AIChatPage() {
             </Box>
           )}
           {/* Render suggestions (if any) under the messages area */}
-          {suggestions?.products?.length > 0 && (
+          {showProductSuggestions && suggestions?.products?.length > 0 && (
             <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mt: 1 }}>
               {suggestions.products.map((p) => (
                 <Card key={p._id} sx={{ width: 200 }}>
@@ -272,7 +448,7 @@ export default function AIChatPage() {
               }
             }}
             placeholder="Nhập câu hỏi của bạn..."
-            disabled={loading}
+            disabled={loading || !historyChoiceMade}
             multiline
             maxRows={3}
             variant="outlined"
@@ -281,7 +457,7 @@ export default function AIChatPage() {
           <Button
             variant="contained"
             onClick={handleSend}
-            disabled={loading || !text.trim()}
+            disabled={loading || !text.trim() || !historyChoiceMade}
             sx={{
               background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
               minWidth: 50,

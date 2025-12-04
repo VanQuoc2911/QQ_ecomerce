@@ -65,6 +65,15 @@ export interface OrderDetailResponse {
   paymentMethod?: string;
   note?: string;
   customerNote?: string;
+  // Shipper info snapshot populated when a shipper claims an order
+  shipperSnapshot?: {
+    _id?: string;
+    name?: string;
+    email?: string;
+    phone?: string;
+    vehicleType?: string;
+    licensePlate?: string;
+  } | null;
 }
 
 // API lấy chi tiết đơn hàng

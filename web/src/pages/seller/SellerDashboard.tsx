@@ -117,6 +117,21 @@ export default function SellerDashboard() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [selectedDetail, setSelectedDetail] = useState<any>(null);
 
+  const getStatusLabel = (status?: string) => {
+    const labels: Record<string, string> = {
+      // server 'pending' indicates awaiting customer payment
+      pending: "Chờ thanh toán",
+      payment_pending: "Chờ thanh toán",
+      awaiting_shipment: "Chờ giao",
+      shipping: "Đang giao",
+      completed: "Hoàn thành",
+      cancelled: "Hủy",
+    };
+    return status ? labels[status] || status : "—";
+  };
+
+  const isAwaitingPayment = (status?: string) => status === "pending" || status === "payment_pending";
+
   const fetchPendingOrders = async (opts?: { q?: string; stock?: string }) => {
     setPendingLoading(true);
     try {
@@ -182,9 +197,12 @@ export default function SellerDashboard() {
   // Get allowed next statuses based on current status
   const getAllowedNextStatuses = (currentStatus?: string): string[] => {
     const transitions: Record<string, string[]> = {
-      pending: ["payment_pending", "cancelled"],
-      payment_pending: ["processing", "cancelled"],
-      processing: ["shipping", "completed", "cancelled"],
+      // Sellers may confirm payment when order is in payment_pending
+      pending: ["cancelled"],
+      // Sellers should only mark an order as prepared (awaiting_shipment) or cancel it.
+      processing: ["awaiting_shipment", "cancelled"],
+      // Sellers should not advance into shipping; only allow cancellation from awaiting_shipment
+      awaiting_shipment: ["cancelled"],
       shipping: ["completed", "cancelled"],
       completed: [],
       cancelled: [],
@@ -715,7 +733,7 @@ export default function SellerDashboard() {
                   <Box display="flex" justifyContent="space-between" alignItems="center">
                     <Typography fontWeight={600}>Trạng thái:</Typography>
                     <Chip
-                      label={selectedDetail.status?.toUpperCase?.() || "—"}
+                      label={getStatusLabel(selectedDetail.status)}
                       size="medium"
                       icon={
                         selectedDetail.status === "completed" ? <CheckCircleIcon /> :
@@ -756,8 +774,8 @@ export default function SellerDashboard() {
             
             {selectedDetail && (
               <>
-                {/* Confirm payment button for payment_pending orders */}
-                {selectedDetail.status === "payment_pending" && (
+                {/* Confirm payment button for orders that are awaiting payment */}
+                {isAwaitingPayment(selectedDetail.status) && (
                   <Button 
                     variant="contained" 
                     onClick={handleConfirmPayment}
@@ -772,55 +790,74 @@ export default function SellerDashboard() {
                   </Button>
                 )}
 
-                {/* Valid next status buttons */}
-                {getAllowedNextStatuses(selectedDetail.status).map((nextStatus) => {
-                  const buttonConfig: Record<string, { label: string; color: string }> = {
-                    payment_pending: { label: "Chờ xác nhận thanh toán", color: "#667eea" },
-                    processing: { label: "Đang xử lý", color: "#667eea" },
-                    shipping: { label: "Đang giao", color: "#f39c12" },
-                    completed: { label: "Hoàn thành", color: "#00b894" },
-                    cancelled: { label: "Hủy đơn", color: "#ff7675" },
-                  };
-                  const config = buttonConfig[nextStatus];
+                {/* Quick prepare button: when order is in `processing` allow seller to mark it as prepared (awaiting_shipment) */}
+                {selectedDetail.status === "processing" && (
+                  <Button
+                    variant="contained"
+                    onClick={() => handleQuickStatus("awaiting_shipment")}
+                    sx={{
+                      backgroundColor: '#1e88e5',
+                      borderRadius: 2,
+                      px: 3,
+                      '&:hover': { backgroundColor: '#1666c2' }
+                    }}
+                  >
+                    ✓ Đã chuẩn bị đơn hàng
+                  </Button>
+                )}
 
-                  if (nextStatus === "cancelled") {
+                {/* Valid next status buttons (excluding awaiting_shipment to avoid duplicate button) */}
+                {(() => {
+                  const allowed = getAllowedNextStatuses(selectedDetail.status).filter((s) => s !== "awaiting_shipment");
+                  return allowed.map((nextStatus) => {
+                    const buttonConfig: Record<string, { label: string; color: string }> = {
+                      awaiting_shipment: { label: "Đã chuẩn bị đơn hàng", color: "#1e88e5" },
+                      processing: { label: "Đang xử lý", color: "#667eea" },
+                      shipping: { label: "Đang giao", color: "#f39c12" },
+                      completed: { label: "Hoàn thành", color: "#00b894" },
+                      cancelled: { label: "Hủy đơn", color: "#ff7675" },
+                    };
+                    const config = buttonConfig[nextStatus];
+
+                    if (nextStatus === "cancelled") {
+                      return (
+                        <Button 
+                          key={nextStatus}
+                          variant="outlined"
+                          onClick={() => handleQuickStatus(nextStatus)}
+                          sx={{
+                            borderColor: config.color,
+                            color: config.color,
+                            borderRadius: 2,
+                            px: 3,
+                            '&:hover': { 
+                              borderColor: config.color,
+                              backgroundColor: `rgba(255, 118, 117, 0.08)`
+                            }
+                          }}
+                        >
+                          {config.label}
+                        </Button>
+                      );
+                    }
+
                     return (
                       <Button 
                         key={nextStatus}
-                        variant="outlined"
+                        variant="contained" 
                         onClick={() => handleQuickStatus(nextStatus)}
                         sx={{
-                          borderColor: config.color,
-                          color: config.color,
+                          backgroundColor: config.color,
                           borderRadius: 2,
                           px: 3,
-                          '&:hover': { 
-                            borderColor: config.color,
-                            backgroundColor: `rgba(255, 118, 117, 0.08)`
-                          }
+                          '&:hover': { backgroundColor: config.color, opacity: 0.8 }
                         }}
                       >
-                        {config.label}
+                        ✓ {config.label}
                       </Button>
                     );
-                  }
-
-                  return (
-                    <Button 
-                      key={nextStatus}
-                      variant="contained" 
-                      onClick={() => handleQuickStatus(nextStatus)}
-                      sx={{
-                        backgroundColor: config.color,
-                        borderRadius: 2,
-                        px: 3,
-                        '&:hover': { backgroundColor: config.color, opacity: 0.8 }
-                      }}
-                    >
-                      ✓ {config.label}
-                    </Button>
-                  );
-                })}
+                  });
+                })()}
 
                 {/* Terminal states message */}
                 {(selectedDetail.status === "completed" || selectedDetail.status === "cancelled") && (

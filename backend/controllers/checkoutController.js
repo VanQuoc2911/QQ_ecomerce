@@ -3,9 +3,14 @@ import Cart from "../models/Cart.js";
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import Shop from "../models/Shop.js";
+import SystemSetting from "../models/SystemSettings.js";
 import User from "../models/User.js";
 import Voucher from "../models/Voucher.js";
-import { SHIPPING_METHODS as SUPPORTED_SHIPPING_METHODS } from "../utils/shippingFee.js";
+import {
+  SHIPPING_METHODS as SUPPORTED_SHIPPING_METHODS,
+  computeShippingForSeller,
+  normalizeShippingAddress,
+} from "../utils/shippingFee.js";
 import { markVoucherUsed } from "./voucherController.js";
 
 const PAYMENT_METHODS = new Set([
@@ -413,6 +418,31 @@ const checkoutController = async (req, res) => {
       shippingOption,
     });
 
+    const systemSettings = await SystemSetting.findOne().lean();
+    const shippingServiceFeePercentSetting = (() => {
+      const raw = systemSettings?.serviceFeePercent;
+      if (typeof raw === "number" && Number.isFinite(raw)) {
+        return Math.min(Math.max(raw, 0), 100);
+      }
+      const parsed = Number(raw);
+      if (!Number.isNaN(parsed)) {
+        return Math.min(Math.max(parsed, 0), 100);
+      }
+      return 0;
+    })();
+
+    const sellerServiceFeePercentSetting = (() => {
+      const raw = systemSettings?.sellerServiceFeePercent;
+      if (typeof raw === "number" && Number.isFinite(raw)) {
+        return Math.min(Math.max(raw, 0), 100);
+      }
+      const parsed = Number(raw);
+      if (!Number.isNaN(parsed)) {
+        return Math.min(Math.max(parsed, 0), 100);
+      }
+      return 0;
+    })();
+
     const discountAllocation = new Map();
     if (voucherDiscount > 0 && voucherEligibleBySeller.size) {
       const allocations = Array.from(voucherEligibleBySeller.entries());
@@ -449,7 +479,23 @@ const checkoutController = async (req, res) => {
         (entry) => entry.sellerId === sellerIdStr
       );
       const shippingFee = feeEntry?.fee || 0;
+      const normalizedShippingFee = Math.max(shippingFee, 0);
+      const computedShippingServiceFee = Math.round(
+        (normalizedShippingFee * shippingServiceFeePercentSetting) / 100
+      );
+      const serviceFee = Math.min(
+        Math.max(computedShippingServiceFee, 0),
+        normalizedShippingFee
+      );
       const orderTotal = Math.max(subtotal + shippingFee - sellerDiscount, 0);
+      const sellerServiceFeeBase = Math.max(subtotal, 0);
+      const computedSellerServiceFee = Math.round(
+        (sellerServiceFeeBase * sellerServiceFeePercentSetting) / 100
+      );
+      const sellerServiceFee = Math.min(
+        Math.max(computedSellerServiceFee, 0),
+        Math.max(orderTotal, 0)
+      );
 
       const order = await Order.create({
         userId: userObjectId,
@@ -464,6 +510,10 @@ const checkoutController = async (req, res) => {
         shippingMethod,
         shippingStatus: "unassigned",
         shippingFee,
+        serviceFeePercent: shippingServiceFeePercentSetting,
+        serviceFee,
+        sellerServiceFeePercent: sellerServiceFeePercentSetting,
+        sellerServiceFee,
         shippingScope: feeEntry?.scope || shippingMethod,
         shippingMeta: {
           option: shippingOption,

@@ -1,18 +1,18 @@
 import { Close, LockOutlined, ShoppingBag, Visibility, VisibilityOff } from "@mui/icons-material";
 import {
-  Alert,
-  Backdrop,
-  Box,
-  Button,
-  CircularProgress,
-  Divider,
-  Fade,
-  IconButton,
-  InputAdornment,
-  Link,
-  Modal,
-  TextField,
-  Typography,
+    Alert,
+    Backdrop,
+    Box,
+    Button,
+    CircularProgress,
+    Divider,
+    Fade,
+    IconButton,
+    InputAdornment,
+    Link,
+    Modal,
+    TextField,
+    Typography,
 } from "@mui/material";
 import { GoogleLogin, type GoogleCredentialResponse } from "@react-oauth/google";
 import React, { useState } from "react";
@@ -35,6 +35,8 @@ interface ErrorType {
 const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
   const { login, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
+
+  const isSellerOnly = import.meta.env.VITE_SELLER_ONLY === "true";
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ErrorType | null>(null);
@@ -221,7 +223,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
                   color="rgba(255,255,255,0.9)"
                   sx={{ mt: 1 }}
                 >
-                  Đăng nhập để tiếp tục mua sắm
+                  {isSellerOnly ? "Chế độ chỉ dành cho người bán — chỉ người bán được phê duyệt mới có thể đăng nhập." : "Đăng nhập để tiếp tục mua sắm"}
                 </Typography>
               </Box>
             </Box>
@@ -424,38 +426,46 @@ const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
                   },
                 }}
               >
-                <GoogleLogin
-                  onSuccess={handleGoogleLogin}
-                  onError={() => setError({ message: "Google login thất bại" })}
-                  width="100%"
-                  size="large"
-                  text="continue_with"
-                  shape="rectangular"
-                />
+                {!isSellerOnly && (
+                  <GoogleLogin
+                    onSuccess={handleGoogleLogin}
+                    onError={() => setError({ message: "Google login thất bại" })}
+                    width="100%"
+                    size="large"
+                    text="continue_with"
+                    shape="rectangular"
+                  />
+                )}
               </Box>
 
               <Box sx={{ mt: 3, textAlign: 'center' }}>
                 <Typography variant="body2" color="text.secondary">
-                  Chưa có tài khoản?{' '}
-                  <Link
-                    component="button"
-                    onClick={() => {
-                      onClose();
-                      window.dispatchEvent(new Event('openRegister'));
-                    }}
-                    sx={{
-                      color: '#0066CC',
-                      fontWeight: 600,
-                      textDecoration: 'none',
-                      transition: 'all 0.2s ease',
-                      '&:hover': {
-                        color: '#0099FF',
-                        textDecoration: 'underline',
-                      },
-                    }}
-                  >
-                    Đăng ký ngay
-                  </Link>
+                  {isSellerOnly ? (
+                    "Chế độ người bán đang bật — đăng ký tài khoản người dùng bị vô hiệu hóa."
+                  ) : (
+                    <>
+                      Chưa có tài khoản?{' '}
+                      <Link
+                        component="button"
+                        onClick={() => {
+                          onClose();
+                          window.dispatchEvent(new Event('openRegister'));
+                        }}
+                        sx={{
+                          color: '#0066CC',
+                          fontWeight: 600,
+                          textDecoration: 'none',
+                          transition: 'all 0.2s ease',
+                          '&:hover': {
+                            color: '#0099FF',
+                            textDecoration: 'underline',
+                          },
+                        }}
+                      >
+                        Đăng ký ngay
+                      </Link>
+                    </>
+                  )}
                 </Typography>
               </Box>
             </Box>
