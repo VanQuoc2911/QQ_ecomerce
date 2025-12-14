@@ -158,6 +158,21 @@ export default function ProductDetail() {
         const data = await productService.getProductById(id);
         if (!mounted) return;
         setProduct(data);
+
+        // Record view in background and update local product views if returned
+        void (async () => {
+          try {
+            const res = await productService.recordView(id);
+            if (!mounted) return;
+            if (res?.views != null) {
+              setProduct((prev) => (prev ? { ...prev, views: res.views } : prev));
+            }
+          } catch (e) {
+            // non-fatal
+            console.warn("Failed to record product view:", e);
+          }
+        })();
+
       } catch (err) {
         console.error("❌ Lỗi tải chi tiết sản phẩm:", err);
         setError("Không thể tải chi tiết sản phẩm. Vui lòng thử lại sau.");

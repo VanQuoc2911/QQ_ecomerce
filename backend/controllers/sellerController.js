@@ -185,6 +185,7 @@ export const createProduct = async (req, res) => {
       variants: parsedVariants,
       sellerId,
       shopId: shop._id,
+      isListed: true,
       status: settings && settings.autoApproveProducts ? "approved" : "pending",
     });
 
@@ -210,22 +211,72 @@ export const updateProduct = async (req, res) => {
       variants,
       images,
       origin,
+      isListed,
     } = body;
     const videosPayload = body.videos;
+
+    const parseArrayField = (value) => {
+      if (value === undefined) return undefined;
+      if (Array.isArray(value)) return value;
+      if (value instanceof Set) return Array.from(value);
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        if (!trimmed.length) return [];
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            return Array.isArray(parsed) ? parsed : [];
+          } catch (err) {
+            console.warn("updateProduct parseArrayField error", err.message);
+            return [];
+          }
+        }
+        try {
+          const parsed = JSON.parse(trimmed);
+          return Array.isArray(parsed) ? parsed : [trimmed];
+        } catch {
+          return [value];
+        }
+      }
+      if (value && typeof value === "object") {
+        return Array.isArray(value) ? value : Object.values(value);
+      }
+      return [];
+    };
+
+    const retainImagesPayload = parseArrayField(body.retainImages);
+    const retainVideosPayload = parseArrayField(body.retainVideos);
+    const uploadedImagesPayload = parseArrayField(images);
+    const uploadedVideosPayload = parseArrayField(videosPayload);
 
     const product = await Product.findOne({ _id: id, sellerId });
     if (!product)
       return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
 
+    let requiresReview = false;
+
     // merge updates
-    if (title !== undefined) product.title = title;
-    if (description !== undefined) product.description = description;
-    if (price !== undefined) product.price = Number(price);
-    if (stock !== undefined) product.stock = Number(stock);
+    if (title !== undefined) {
+      product.title = title;
+      requiresReview = true;
+    }
+    if (description !== undefined) {
+      product.description = description;
+      requiresReview = true;
+    }
+    if (price !== undefined) {
+      product.price = Number(price);
+      requiresReview = true;
+    }
+    if (stock !== undefined) {
+      product.stock = Number(stock);
+      requiresReview = true;
+    }
     if (categories !== undefined) {
       try {
         product.categories =
           typeof categories === "string" ? JSON.parse(categories) : categories;
+        requiresReview = true;
       } catch (err) {
         return res
           .status(400)
@@ -236,54 +287,66 @@ export const updateProduct = async (req, res) => {
       try {
         product.variants =
           typeof variants === "string" ? JSON.parse(variants) : variants;
+        requiresReview = true;
       } catch (err) {
         return res
           .status(400)
           .json({ message: "Biến thể không hợp lệ", detail: err.message });
       }
     }
-    if (images !== undefined) {
-      try {
-        const parsedImages =
-          typeof images === "string" && images.trim().startsWith("[")
-            ? JSON.parse(images)
-            : images;
-        product.images = Array.isArray(parsedImages)
-          ? parsedImages
-          : parsedImages
-          ? [parsedImages]
+    const shouldUpdateImages =
+      retainImagesPayload !== undefined || uploadedImagesPayload !== undefined;
+    if (shouldUpdateImages) {
+      const baseImages =
+        retainImagesPayload !== undefined
+          ? retainImagesPayload
+          : Array.isArray(product.images)
+          ? [...product.images]
           : [];
-      } catch {
-        product.images = Array.isArray(images) ? images : [images];
-      }
-    } // ✅ Lấy URL từ uploadToCloudinary
-    if (videosPayload !== undefined) {
-      try {
-        product.videos =
-          typeof videosPayload === "string"
-            ? JSON.parse(videosPayload)
-            : videosPayload || [];
-      } catch {
-        product.videos = videosPayload || [];
-      }
+      const uploads = uploadedImagesPayload ?? [];
+      product.images = [...baseImages, ...uploads];
+      requiresReview = true;
     }
-    if (origin !== undefined) product.origin = origin;
+
+    const shouldUpdateVideos =
+      retainVideosPayload !== undefined || uploadedVideosPayload !== undefined;
+    if (shouldUpdateVideos) {
+      const baseVideos =
+        retainVideosPayload !== undefined
+          ? retainVideosPayload
+          : Array.isArray(product.videos)
+          ? [...product.videos]
+          : [];
+      const uploads = uploadedVideosPayload ?? [];
+      product.videos = [...baseVideos, ...uploads];
+      requiresReview = true;
+    }
+    if (origin !== undefined) {
+      product.origin = origin;
+      requiresReview = true;
+    }
+    if (isListed !== undefined) {
+      product.isListed =
+        typeof isListed === "string" ? isListed === "true" : Boolean(isListed);
+    }
 
     // Ensure we read system settings to decide auto-approve behavior
-    try {
-      const SystemSetting = (await import("../models/SystemSettings.js"))
-        .default;
-      const settings = await SystemSetting.findOne();
-      if (!(settings && settings.autoApproveProducts)) {
+    if (requiresReview) {
+      try {
+        const SystemSetting = (await import("../models/SystemSettings.js"))
+          .default;
+        const settings = await SystemSetting.findOne();
+        if (!(settings && settings.autoApproveProducts)) {
+          product.status = "pending";
+        }
+      } catch (e) {
+        // If settings can't be loaded, default to keeping product as-is or set to pending
+        console.warn(
+          "updateProduct: failed to read system settings, defaulting to pending",
+          e
+        );
         product.status = "pending";
       }
-    } catch (e) {
-      // If settings can't be loaded, default to keeping product as-is or set to pending
-      console.warn(
-        "updateProduct: failed to read system settings, defaulting to pending",
-        e
-      );
-      product.status = "pending";
     }
 
     await product.save();
@@ -291,6 +354,40 @@ export const updateProduct = async (req, res) => {
   } catch (error) {
     console.error("updateProduct error:", error);
     res.status(500).json({ message: "Lỗi khi cập nhật sản phẩm", error });
+  }
+};
+
+export const updateProductListing = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const sellerId = req.user.id;
+    if (req.body?.isListed === undefined) {
+      return res.status(400).json({ message: "Thiếu trạng thái hiển thị" });
+    }
+
+    const product = await Product.findOne({ _id: id, sellerId });
+    if (!product)
+      return res.status(404).json({ message: "Không tìm thấy sản phẩm" });
+
+    const parsedValue =
+      typeof req.body.isListed === "string"
+        ? req.body.isListed === "true"
+        : Boolean(req.body.isListed);
+
+    product.isListed = parsedValue;
+    await product.save();
+
+    return res.json({
+      message: parsedValue
+        ? "Sản phẩm đã được mở bán trở lại"
+        : "Sản phẩm đã được ngưng bán",
+      product,
+    });
+  } catch (error) {
+    console.error("updateProductListing error:", error);
+    return res
+      .status(500)
+      .json({ message: "Lỗi khi cập nhật trạng thái bán", error });
   }
 };
 

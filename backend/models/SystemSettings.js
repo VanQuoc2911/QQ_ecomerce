@@ -5,6 +5,10 @@ const SmtpSchema = new mongoose.Schema({
   email: { type: String, default: "" },
   smtpServer: { type: String, default: "" },
   smtpPort: { type: Number, default: 587 },
+  username: { type: String, default: "" },
+  password: { type: String, default: "" },
+  secure: { type: Boolean, default: false },
+  fromName: { type: String, default: "" },
 });
 
 const SystemSettingSchema = new mongoose.Schema({

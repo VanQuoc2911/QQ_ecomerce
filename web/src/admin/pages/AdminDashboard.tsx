@@ -1,12 +1,13 @@
 // src/admin/pages/AdminDashboard.tsx
 import AssessmentIcon from "@mui/icons-material/Assessment";
+import CategoryIcon from "@mui/icons-material/Category";
 import LogoutIcon from "@mui/icons-material/Logout";
 import PendingActionsIcon from "@mui/icons-material/PendingActions";
 import PeopleIcon from "@mui/icons-material/People";
 import SettingsIcon from "@mui/icons-material/Settings";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import StoreIcon from "@mui/icons-material/Store";
-import { Box, Button, Card, CardContent, CircularProgress, Container, Typography, alpha } from "@mui/material";
+import { alpha, Box, Button, Card, CardContent, CircularProgress, Container, Typography } from "@mui/material";
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/axios";
@@ -21,6 +22,7 @@ interface StatCard {
   trend?: string;
   subtitle?: string;
 }
+
 
 const AdminDashboard: React.FC = () => {
   const { logout } = useAuth();
@@ -129,6 +131,8 @@ const AdminDashboard: React.FC = () => {
           subtitle: "Configure system",
         },
       ]);
+
+      // banners/ads feature removed
     } catch (err) {
       console.error("Error fetching dashboard stats:", err);
     } finally {
@@ -140,13 +144,16 @@ const AdminDashboard: React.FC = () => {
     fetchStats();
   }, []);
 
+  // banners/ads removed; no image resolver needed here.
+
   const quickActions = [
     { label: "View All Products", description: "Browse and moderate listings", icon: <ShoppingCartIcon />, link: "products" },
+    { label: "Manage Categories", description: "Create, edit, and remove product categories", icon: <CategoryIcon />, link: "categories" },
     { label: "User Management", description: "Manage customer accounts", icon: <PeopleIcon />, link: "users" },
     { label: "Seller Requests", description: "Review pending sellers", icon: <StoreIcon />, link: "seller-requests" },
     { label: "Shipper Requests", description: "Review pending shippers", icon: <PendingActionsIcon />, link: "shipper-requests" },
     { label: "View Reports", description: "Check performance insights", icon: <AssessmentIcon />, link: "reports" },
-    { label: "System Settings", description: "Update platform policies", icon: <SettingsIcon />, link: "settings" },
+    {label: "System Settings", description: "Update platform policies", icon: <SettingsIcon />, link: "settings" },
   ];
 
   if (loading) {
@@ -275,7 +282,7 @@ const AdminDashboard: React.FC = () => {
                   </Box>
                 </Box>
                 {stat.trend && (
-                  <Typography variant="caption" color="text.secondary" display="block" mt={2}>
+                  <Typography variant="caption" color="text.secondary" mt={2}>
                     {stat.trend}
                   </Typography>
                 )}
@@ -283,6 +290,8 @@ const AdminDashboard: React.FC = () => {
             </Card>
           ))}
         </Box>
+
+        {/* Banners/ads UI removed */}
 
         <Card sx={{ borderRadius: 4, border: "1px solid", borderColor: alpha("#0288d1", 0.1) }}>
           <CardContent sx={{ p: { xs: 3, md: 4 } }}>

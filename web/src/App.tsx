@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import ChatbotFloatingButton from "./components/chat/ChatbotFloatingButton";
+import PageLoadingOverlay from "./components/common/PageLoadingOverlay";
 import { useAuth } from "./context/AuthContext";
 import { SocketProvider } from "./context/SocketContext";
 import MainLayout from "./layouts/MainLayout";
@@ -65,6 +66,7 @@ export default function App() {
               </>
             )}
           </Routes>
+          <PageLoadingOverlay />
           <ChatbotFloatingButton />
         </BrowserRouter>
 

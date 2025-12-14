@@ -1,4 +1,5 @@
 import { Route, Routes } from "react-router-dom";
+import ResetPasswordPage from "../pages/auth/ResetPasswordPage";
 import AIChatPage from "../pages/chat/AIChatPage";
 import ChatPage from "../pages/chat/ChatPage";
 import ShopPage from "../pages/shop/ShopPage";
@@ -44,6 +45,7 @@ export default function UserRoutes() {
       <Route path="ai-chat" element={<AIChatPage />} />
       <Route path="Order/:id" element={<OrderDetail/>} />
       <Route path="seller-info/:id" element={<SellerInfoSupplement />} />
+      <Route path="reset-password" element={<ResetPasswordPage />} />
 
 
     </Routes>

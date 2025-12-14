@@ -64,6 +64,8 @@ const userSchema = new mongoose.Schema({
     type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Product" }],
     default: [],
   },
+  resetPasswordToken: { type: String, default: null },
+  resetPasswordExpires: { type: Date, default: null },
   createdAt: { type: Date, default: Date.now },
 });
 

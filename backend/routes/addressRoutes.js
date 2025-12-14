@@ -1,7 +1,12 @@
 import express from "express";
+import fetch from "node-fetch";
+import plusCodePkg from "open-location-code";
 import District from "../models/District.js";
 import Province from "../models/Province.js";
 import Ward from "../models/Ward.js";
+
+const { OpenLocationCode } = plusCodePkg;
+const olc = new OpenLocationCode();
 
 const router = express.Router();
 
@@ -32,14 +37,22 @@ const fetchWithTimeout = async (
   timeout = 5000
 ) => {
   const attempt = async (n, delay) => {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeout);
+    let controller = null;
+    let id = null;
+    let signal = options.signal;
+
+    if (typeof AbortController !== "undefined") {
+      controller = new AbortController();
+      id = setTimeout(() => controller.abort(), timeout);
+      signal = controller.signal;
+    }
+
     try {
-      const resp = await fetch(url, { ...options, signal: controller.signal });
-      clearTimeout(id);
+      const resp = await fetch(url, { ...options, signal });
+      if (id) clearTimeout(id);
       return resp;
     } catch (err) {
-      clearTimeout(id);
+      if (id) clearTimeout(id);
       if (n > 0) {
         await new Promise((r) => setTimeout(r, delay));
         return attempt(n - 1, Math.min(delay * 1.5, 2000));
@@ -48,6 +61,205 @@ const fetchWithTimeout = async (
     }
   };
   return attempt(retries, 300);
+};
+
+const computePlusCode = (latNum, lngNum, existing = "") => {
+  if (existing) return existing;
+  if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return "";
+  try {
+    return olc.encode(latNum, lngNum) || "";
+  } catch (err) {
+    console.warn("Failed to encode plus code", err);
+    return "";
+  }
+};
+
+const resolveLegacyLocationNames = async (
+  provinceName = "",
+  districtName = ""
+) => {
+  let oldProvince = "";
+  let oldDistrict = "";
+
+  if (provinceName) {
+    const prov = await Province.findOne({
+      name: { $regex: provinceName, $options: "i" },
+    });
+    if (prov) {
+      oldProvince = prov.oldName || prov.name;
+      if (districtName) {
+        const dist = await District.findOne({
+          province: prov._id,
+          name: { $regex: districtName, $options: "i" },
+        });
+        if (dist) {
+          oldDistrict = dist.oldName || dist.name;
+        }
+      }
+    }
+  }
+
+  return {
+    province: provinceName || "",
+    district: districtName || "",
+    oldProvince: oldProvince || provinceName || "",
+    oldDistrict: oldDistrict || districtName || "",
+  };
+};
+
+const reverseWithGoogle = async (latNum, lngNum, googleKey) => {
+  if (!googleKey) return null;
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${encodeURIComponent(
+    String(latNum)
+  )},${encodeURIComponent(String(lngNum))}&key=${googleKey}&language=vi`;
+
+  try {
+    const response = await fetchWithTimeout(url, {}, 2, 6000);
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn(
+        "Google geocode HTTP error",
+        response.status,
+        errText.slice(0, 200)
+      );
+      return null;
+    }
+
+    const data = await response.json();
+    if (
+      !data ||
+      data.status !== "OK" ||
+      !Array.isArray(data.results) ||
+      !data.results[0]
+    ) {
+      console.warn("Google geocode returned unexpected payload", data?.status);
+      return null;
+    }
+
+    const comp = data.results[0].address_components || [];
+    const findComponent = (type) => {
+      const c = comp.find((item) =>
+        Array.isArray(item.types) ? item.types.includes(type) : false
+      );
+      return c ? c.long_name || c.short_name || "" : "";
+    };
+
+    const province =
+      findComponent("administrative_area_level_1") ||
+      findComponent("administrative_area_level_2") ||
+      findComponent("locality") ||
+      "";
+    const district =
+      findComponent("administrative_area_level_2") ||
+      findComponent("administrative_area_level_3") ||
+      findComponent("locality") ||
+      findComponent("sublocality") ||
+      "";
+    const ward =
+      findComponent("administrative_area_level_3") ||
+      findComponent("administrative_area_level_4") ||
+      findComponent("sublocality") ||
+      findComponent("neighborhood") ||
+      "";
+
+    const plusCode =
+      data.plus_code?.global_code ||
+      data.results[0]?.plus_code?.global_code ||
+      "";
+
+    return {
+      province,
+      district,
+      ward,
+      detail: data.results[0].formatted_address || "",
+      plusCode,
+      raw: data.results[0],
+      source: "google-maps",
+    };
+  } catch (err) {
+    console.error("Google reverse geocode failed", err);
+    return null;
+  }
+};
+
+const reverseWithGeocodeMaps = async (latNum, lngNum, apiKey) => {
+  const params = new URLSearchParams({
+    lat: String(latNum),
+    lon: String(lngNum),
+    format: "jsonv2",
+    accept_language: "vi",
+  });
+  if (apiKey) params.append("api_key", apiKey);
+
+  const url = `https://geocode.maps.co/reverse?${params.toString()}`;
+  try {
+    const response = await fetchWithTimeout(url, {}, 2, 6000);
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn(
+        "geocode.maps reverse HTTP error",
+        response.status,
+        errText.slice(0, 200)
+      );
+      return null;
+    }
+
+    const data = await response.json();
+    if (!data || !data.display_name) {
+      console.warn("geocode.maps reverse returned empty payload");
+      return null;
+    }
+
+    const address = data.address || {};
+    const province =
+      address.state || address.region || address.city || address.province || "";
+    const district =
+      address.city_district ||
+      address.district ||
+      address.county ||
+      address.borough ||
+      address.state_district ||
+      "";
+    const ward =
+      address.suburb ||
+      address.town ||
+      address.village ||
+      address.neighbourhood ||
+      address.hamlet ||
+      "";
+
+    return {
+      province,
+      district,
+      ward,
+      detail: data.display_name || "",
+      plusCode: "",
+      raw: data,
+      source: "geocode-maps",
+    };
+  } catch (err) {
+    console.error("geocode.maps reverse geocode failed", err);
+    return null;
+  }
+};
+
+const buildReverseResponse = async (payload, latNum, lngNum) => {
+  const legacy = await resolveLegacyLocationNames(
+    payload.province,
+    payload.district
+  );
+  return {
+    province: legacy.province,
+    district: legacy.district,
+    ward: payload.ward || "",
+    oldProvince: legacy.oldProvince,
+    oldDistrict: legacy.oldDistrict,
+    detail:
+      payload.detail || `Vị trí: ${latNum.toFixed(4)}, ${lngNum.toFixed(4)}`,
+    plusCode: computePlusCode(latNum, lngNum, payload.plusCode),
+    raw: payload.raw || null,
+    source: payload.source || "unknown",
+  };
 };
 
 // Routes
@@ -107,94 +319,54 @@ router.get("/reverse", async (req, res) => {
         .json({ message: "lat and lng must be valid numbers" });
 
     const googleKey = process.env.GOOGLE_MAPS_API_KEY;
-    if (!googleKey) {
-      return res
-        .status(500)
-        .json({ message: "Google Maps API key is not configured" });
-    }
+    const geocodeMapsKey = process.env.GEOCODE_MAPS_CO_KEY;
 
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${encodeURIComponent(
-      String(latNum)
-    )},${encodeURIComponent(String(lngNum))}&key=${googleKey}&language=vi`;
-    const r = await fetchWithTimeout(url, {}, 2, 6000);
-    if (r && r.ok) {
-      const data = await r.json();
-      if (
-        data.status === "OK" &&
-        Array.isArray(data.results) &&
-        data.results[0]
-      ) {
-        const comp = data.results[0].address_components || [];
-        const findComponent = (type) => {
-          const c = comp.find((item) =>
-            Array.isArray(item.types) ? item.types.includes(type) : false
+    const strategies = [];
+    if (googleKey) {
+      strategies.push(() => reverseWithGoogle(latNum, lngNum, googleKey));
+    } else {
+      console.warn(
+        "GOOGLE_MAPS_API_KEY missing. Skipping Google reverse geocode."
+      );
+    }
+    strategies.push(() =>
+      reverseWithGeocodeMaps(latNum, lngNum, geocodeMapsKey)
+    );
+
+    for (const strategy of strategies) {
+      try {
+        const payload = await strategy();
+        if (payload) {
+          const responseBody = await buildReverseResponse(
+            payload,
+            latNum,
+            lngNum
           );
-          return c ? c.long_name || c.short_name || "" : "";
-        };
-
-        const province =
-          findComponent("administrative_area_level_1") ||
-          findComponent("administrative_area_level_2") ||
-          findComponent("locality") ||
-          "";
-        const district =
-          findComponent("administrative_area_level_2") ||
-          findComponent("administrative_area_level_3") ||
-          findComponent("locality") ||
-          findComponent("sublocality") ||
-          "";
-        const ward =
-          findComponent("administrative_area_level_3") ||
-          findComponent("administrative_area_level_4") ||
-          findComponent("sublocality") ||
-          findComponent("neighborhood") ||
-          "";
-
-        let oldProvince = "";
-        let oldDistrict = "";
-        if (province) {
-          const prov = await Province.findOne({
-            name: { $regex: province, $options: "i" },
-          });
-          if (prov) {
-            oldProvince = prov.oldName || prov.name;
-            if (district) {
-              const dist = await District.findOne({
-                province: prov._id,
-                name: { $regex: district, $options: "i" },
-              });
-              if (dist) {
-                oldDistrict = dist.oldName || dist.name;
-              }
-            }
-          }
+          return res.json(responseBody);
         }
-
-        return res.json({
-          province,
-          district,
-          ward,
-          oldProvince: oldProvince || province,
-          oldDistrict: oldDistrict || district,
-          detail: data.results[0].formatted_address || "",
-          raw: data.results[0],
-          source: "google-maps",
-        });
+      } catch (strategyErr) {
+        console.error("Reverse geocode strategy failed", strategyErr);
       }
-      console.warn("Google geocode unexpected response", data);
     }
 
-    return res.json({
-      province: "",
-      district: "",
-      ward: "",
-      detail: `Vị trí: ${latNum.toFixed(4)}, ${lngNum.toFixed(4)}`,
-      raw: { lat: latNum, lng: lngNum },
-      source: "coordinate-only",
-    });
+    const fallback = await buildReverseResponse(
+      {
+        province: "",
+        district: "",
+        ward: "",
+        detail: `Vị trí: ${latNum.toFixed(4)}, ${lngNum.toFixed(4)}`,
+        plusCode: "",
+        raw: { lat: latNum, lng: lngNum },
+        source: "coordinate-only",
+      },
+      latNum,
+      lngNum
+    );
+
+    return res.json(fallback);
   } catch (err) {
     console.error("/reverse error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 

@@ -8,6 +8,7 @@ export interface ApiProduct {
   description: string;
   price: number;
   stock: number;
+  views?: number;
   images: string[];
   videos?: string[];
   sellerId: string;
@@ -17,6 +18,7 @@ export interface ApiProduct {
   rating?: number;
   reviewCount?: number;
   status: string;
+  isListed?: boolean;
   createdAt: string;
   Rating: number;
   __v: number;
@@ -67,10 +69,21 @@ export const productService = {
     const { data } = await api.get(`/api/products/${id}`);
     return data;
   },
+  // Record a product view (increments server-side counter)
+  recordView: async (id: string): Promise<{ productId: string; views: number }> => {
+    const { data } = await api.post(`/api/products/${id}/view`);
+    return data;
+  },
     // ✅ Xoá sản phẩm
   deleteProduct: async (id: string | number): Promise<{ message: string }> => {
     const { data } = await api.delete(`/api/products/${id}`);
     return data;
   },
+
+    // ✅ Cập nhật trạng thái hiển thị (seller)
+    updateListingStatus: async (id: string, isListed: boolean) => {
+      const { data } = await api.patch(`/api/seller/products/${id}/listing`, { isListed });
+      return data;
+    },
 };
 

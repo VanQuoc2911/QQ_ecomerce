@@ -6,6 +6,7 @@ type ReverseGeocodeResponse = {
   district?: string;
   ward?: string;
   detail?: string;
+  plusCode?: string;
   oldProvince?: string;
   oldDistrict?: string;
   raw?: unknown;

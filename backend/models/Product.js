@@ -16,6 +16,7 @@ const productSchema = new mongoose.Schema({
   origin: { type: String, default: "Việt Nam" }, // Country of origin
   rating: { type: Number, default: 0, min: 0, max: 5 }, // Average rating 0-5
   reviewCount: { type: Number, default: 0 }, // Number of reviews
+  views: { type: Number, default: 0 },
   variants: { type: Object, default: {} },
   status: {
     type: String,
@@ -24,6 +25,7 @@ const productSchema = new mongoose.Schema({
   },
   videos: [String],
   soldCount: { type: Number, default: 0 },
+  isListed: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },
 });
 

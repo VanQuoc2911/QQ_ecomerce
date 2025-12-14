@@ -9,28 +9,29 @@ import PhoneIcon from "@mui/icons-material/Phone";
 import SaveIcon from "@mui/icons-material/Save";
 import StoreIcon from "@mui/icons-material/Store";
 import {
-  Alert,
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  IconButton,
-  LinearProgress,
-  Paper,
-  Stack,
-  TextField,
-  Typography
+    Alert,
+    Avatar,
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    Divider,
+    IconButton,
+    LinearProgress,
+    Paper,
+    Stack,
+    TextField,
+    Typography
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { MapContainer, Marker, TileLayer, useMapEvents } from "react-leaflet";
 import { useNavigate } from "react-router-dom";
+import { addressService } from "../../api/addressService";
 import { sellerService, type ShopInfo } from "../../api/sellerService";
 import { useAuth } from "../../context/AuthContext";
 
@@ -174,11 +175,13 @@ export default function SellerShopInfo() {
   }, [mapDialogOpen, shop?.lat, shop?.lng]);
 
   const fetchLocationName = async (lat: number, lng: number) => {
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=vi`
-    );
-    const data = await response.json();
-    return (data?.display_name as string | undefined) ?? "";
+    try {
+      const result = await addressService.reverseGeocode(lat, lng);
+      return result.plusCode || result.detail || result.displayName || "";
+    } catch (error) {
+      console.error("reverse geocode error", error);
+      return "";
+    }
   };
 
   const requestGpsCoordinates = (
@@ -787,12 +790,12 @@ export default function SellerShopInfo() {
                   color="text.secondary"
                   mb={1}
                 >
-                  Địa chỉ *
+                  Địa chỉ (Mã cộng/Plus Code) *
                 </Typography>
                 <TextField
                   fullWidth
                   disabled={!isEditing}
-                  placeholder="Nhập địa chỉ cửa hàng"
+                  placeholder="Ví dụ: 7P26+GH Quận 1, Thành phố Hồ Chí Minh"
                   value={shop.address}
                   onChange={(e) => setShop({ ...shop, address: e.target.value })}
                   InputProps={{
@@ -941,7 +944,7 @@ export default function SellerShopInfo() {
                     <Chip
                       size="small"
                       color={pinnedAddressLoading ? 'warning' : 'info'}
-                      label={pinnedAddressLoading ? 'Đang tìm địa chỉ...' : 'Địa chỉ tự động' }
+                      label={pinnedAddressLoading ? 'Đang tìm địa chỉ...' : 'Địa chỉ tự động (Plus Code)' }
                     />
                   </Stack>
                   <Typography variant="body2" color="text.secondary" mb={2}>
@@ -1118,7 +1121,7 @@ export default function SellerShopInfo() {
                 <LinearProgress sx={{ mt: 1, borderRadius: 999 }} />
               ) : tempAddressText ? (
                 <Typography variant="body2" color="text.secondary" mt={1}>
-                  Địa điểm phát hiện: {tempAddressText}
+                  Địa điểm phát hiện (Plus Code): {tempAddressText}
                 </Typography>
               ) : (
                 <Typography variant="body2" color="text.secondary" mt={1}>

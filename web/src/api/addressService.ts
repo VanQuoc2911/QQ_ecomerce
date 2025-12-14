@@ -1,5 +1,24 @@
 import api from "./axios";
 
+type ReverseGeocodeComponent = {
+  long_name?: string;
+  short_name?: string;
+  types?: string[];
+};
+
+export type ReverseGeocodeResponse = {
+  province: string;
+  district: string;
+  ward: string;
+  detail: string;
+  plusCode?: string;
+  displayName?: string;
+  raw?: {
+    formatted_address?: string;
+    address_components?: ReverseGeocodeComponent[];
+  } | null;
+};
+
 export const addressService = {
   // ✅ Get all provinces
   getProvinces: async (): Promise<string[]> => {
@@ -24,13 +43,7 @@ export const addressService = {
   },
 
   // Reverse geocode lat/lng to address components via backend proxy
-  reverseGeocode: async (lat: number, lng: number): Promise<{
-    province: string;
-    district: string;
-    ward: string;
-    detail: string;
-    displayName?: string;
-  }> => {
+  reverseGeocode: async (lat: number, lng: number): Promise<ReverseGeocodeResponse> => {
     const { data } = await api.get(`/api/address/reverse?lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`);
     return data;
   },

@@ -4,18 +4,18 @@ import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import SearchIcon from "@mui/icons-material/Search";
 import WorkspacePremiumIcon from "@mui/icons-material/WorkspacePremium";
 import {
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Container,
-  Fade,
-  InputAdornment,
-  Paper,
-  Stack,
-  TextField,
-  Typography,
+    Avatar,
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    Container,
+    Fade,
+    InputAdornment,
+    Paper,
+    Stack,
+    TextField,
+    Typography,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { motion } from "framer-motion";
@@ -25,6 +25,7 @@ import { useNavigate } from "react-router-dom";
 import Slider from "react-slick";
 import "slick-carousel/slick/slick-theme.css";
 import "slick-carousel/slick/slick.css";
+import { bannerService, type ApiBanner } from "../../api/bannerService";
 import { productService } from "../../api/productService";
 import ProductCard from "../../components/user/ProductCard";
 import { useAuth } from "../../context/AuthContext";
@@ -37,6 +38,7 @@ export default function Home() {
   const [productResponse, setProductResponse] = useState<ProductResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [heroSearch, setHeroSearch] = useState("");
+  const [banners, setBanners] = useState<ApiBanner[]>([]);
 
   useEffect(() => {
     productService
@@ -44,6 +46,16 @@ export default function Home() {
       .then(setProductResponse)
       .catch(console.error)
       .finally(() => setLoading(false));
+
+    // load active homepage banners (exclude ads)
+    void (async () => {
+      try {
+        const items = await bannerService.list({ kind: "banner" });
+        setBanners(items.filter((b) => b.active));
+      } catch (e) {
+        console.warn("Failed to load banners", e);
+      }
+    })();
   }, []);
 
   const products = useMemo(() => productResponse?.items ?? [], [productResponse]);
@@ -217,6 +229,37 @@ export default function Home() {
     ),
   };
 
+  const renderBanners = () => {
+    if (!banners.length) return null;
+    return (
+      <Box sx={{ pb: { xs: 4, md: 6 }, px: { xs: 2, md: 0 } }}>
+        <Box sx={{ borderRadius: 4, overflow: "hidden", boxShadow: "0 30px 60px rgba(15,23,42,0.15)" }}>
+          <Slider {...bannerSettings}>
+            {banners.map((b) => (
+              <Box key={b._id} sx={{ cursor: b.link ? "pointer" : "default" }} onClick={() => b.link && navigate(b.link)}>
+                <Box
+                  sx={{
+                    height: { xs: 220, md: 360 },
+                    background: `linear-gradient(180deg, rgba(0,0,0,0.12), rgba(0,0,0,0.12)), url(${b.image}) center/cover`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Container>
+                    <Typography variant="h3" sx={{ color: "white", fontWeight: 800, textShadow: "0 6px 30px rgba(0,0,0,0.35)" }}>
+                      {b.title}
+                    </Typography>
+                  </Container>
+                </Box>
+              </Box>
+            ))}
+          </Slider>
+        </Box>
+      </Box>
+    );
+  };
+
   return (
     <Box
         sx={{
@@ -226,6 +269,7 @@ export default function Home() {
           overflow: "hidden",
         }}
       >
+        {renderBanners()}
         <Box
         component="section"
         sx={{

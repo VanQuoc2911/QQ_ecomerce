@@ -65,8 +65,10 @@ const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
       }
 
       const user = await login(email, password);
+      const redirectPath = getRoleRedirectPath((user.role ?? "user") as Role);
       onClose();
-      navigate(getRoleRedirectPath((user.role ?? "user") as Role));
+      navigate(redirectPath);
+      window.location.reload();
     } catch (err_: unknown) {
       const e = err_ as Error;
       setError({ message: e.message || "Đăng nhập thất bại" });
@@ -80,8 +82,10 @@ const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
       setLoading(true);
       if (!credentialResponse || !credentialResponse.credential) throw new Error("Google login thất bại");
       const user = await loginWithGoogle(credentialResponse);
+      const redirectPath = getRoleRedirectPath(user.role as Role);
       onClose();
-      navigate(getRoleRedirectPath(user.role as Role));
+      navigate(redirectPath);
+      window.location.reload();
     } catch (err_: unknown) {
       const e = err_ as Error;
       setError({ message: e.message || "Đăng nhập Google thất bại" });
@@ -406,6 +410,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
                   justifyContent: 'center',
                   '& > div': {
                     width: '100%',
+                    maxWidth: 320,
                     display: 'flex',
                     justifyContent: 'center',
                     '& > div': {
@@ -430,7 +435,6 @@ const LoginModal: React.FC<LoginModalProps> = ({ open, onClose }) => {
                   <GoogleLogin
                     onSuccess={handleGoogleLogin}
                     onError={() => setError({ message: "Google login thất bại" })}
-                    width="100%"
                     size="large"
                     text="continue_with"
                     shape="rectangular"

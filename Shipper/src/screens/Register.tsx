@@ -1,19 +1,19 @@
 import { useNavigation } from '@react-navigation/native';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Modal,
-  PermissionsAndroid,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-  type TextInputProps
+    ActivityIndicator,
+    Alert,
+    KeyboardAvoidingView,
+    Modal,
+    PermissionsAndroid,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+    type TextInputProps
 } from 'react-native';
 // @ts-ignore react-native-image-picker ships without full TS support in some setups
 import { launchCamera } from 'react-native-image-picker';
@@ -266,13 +266,24 @@ export default function RegisterScreen() {
     setSelectedCoords(event.nativeEvent.coordinate);
   };
 
-  const handleMapConfirm = () => {
+  const handleMapConfirm = async () => {
     if (selectedCoords) {
       setMapRegion((prev) => ({
         ...prev,
         latitude: selectedCoords.latitude,
         longitude: selectedCoords.longitude,
       }));
+      
+      // Auto-fill address from map selection
+      try {
+        const reverse = await addressService.reverseGeocode(selectedCoords.latitude, selectedCoords.longitude);
+        const resolvedDetail = reverse.plusCode || reverse.detail || '';
+        if (resolvedDetail) {
+          setAddress(resolvedDetail);
+        }
+      } catch (error) {
+        console.warn('[Register] map confirm reverse geocode failed', error);
+      }
     }
     setMapVisible(false);
   };
@@ -302,7 +313,7 @@ export default function RegisterScreen() {
         resolvedProvince = reverse.oldProvince || reverse.province || '';
         resolvedDistrict = reverse.oldDistrict || reverse.district || '';
         resolvedWard = reverse.ward || '';
-        resolvedDetail = reverse.detail || '';
+        resolvedDetail = reverse.plusCode || reverse.detail || '';
 
         if (reverse.province || reverse.district || reverse.ward) {
           const matched = await addressService.matchLocation(
@@ -400,7 +411,7 @@ export default function RegisterScreen() {
       if (!province) missing.push('Tỉnh/Thành phố');
       if (!district) missing.push('Quận/Huyện');
       if (!ward) missing.push('Phường/Xã');
-      if (!trimmed.address) missing.push('Địa chỉ cụ thể');
+      if (!trimmed.address) missing.push('Vị trí cụ thể');
     }
     if (!trimmed.vehicleType) missing.push('Loại phương tiện');
     if (!trimmed.licensePlate) missing.push('Biển số');
@@ -598,10 +609,10 @@ export default function RegisterScreen() {
                   <Text style={styles.coordsHint}>Chưa chọn vị trí</Text>
                 )}
                 <LabeledInput
-                  label="Mô tả địa chỉ"
+                  label="Vị trí cụ thể (Mã cộng/Plus Code)"
                   value={address}
                   onChangeText={setAddress}
-                  placeholder="Tên tòa nhà, tầng, mô tả ngắn"
+                  placeholder="Ví dụ: 7P26+GH Quận 1, Thành phố Hồ Chí Minh"
                   multiline
                   numberOfLines={3}
                   textAlignVertical="top"

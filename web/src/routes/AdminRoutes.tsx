@@ -5,6 +5,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 // ✅ Import đầy đủ các trang Admin
+import AdminCategories from "../admin/pages/AdminCategories";
 import AdminDashboard from "../admin/pages/AdminDashboard";
 import AdminProductReview from "../admin/pages/AdminProductReview";
 import AdminReports from "../admin/pages/AdminReports";
@@ -12,6 +13,7 @@ import AdminSellerRequests from "../admin/pages/AdminSellerRequests";
 import AdminShipperRequests from "../admin/pages/AdminShipperRequests";
 import AdminSettings from "../admin/pages/SystemSettings";
 import UsersManagement from "../admin/pages/UsersManagement";
+import AdminBanners from "../pages/admin/Banners";
 import SellerEditProduct from "../pages/seller/SellerEditProduct";
 
 export default function AdminRoutes() {
@@ -37,9 +39,15 @@ export default function AdminRoutes() {
       {/* ✅ Dashboard */}
       <Route path="dashboard" element={<AdminDashboard />} />
 
+      {/* ✅ Quản lý banner & quảng cáo */}
+      <Route path="banners" element={<AdminBanners />} />
+
       {/* ✅ Quản lý sản phẩm chờ duyệt */}
       <Route path="Products" element={<AdminProductReview />} />
       <Route path="products/:id" element={<SellerEditProduct />} />
+
+      {/* ✅ Quản lý danh mục */}
+      <Route path="categories" element={<AdminCategories />} />
 
       {/* ✅ Quản lý yêu cầu người bán */}
       <Route path="seller-requests" element={<AdminSellerRequests />} />

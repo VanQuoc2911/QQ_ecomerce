@@ -11,7 +11,6 @@ import MapOutlinedIcon from '@mui/icons-material/MapOutlined';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import PaymentOutlinedIcon from '@mui/icons-material/PaymentOutlined';
 import PublicIcon from '@mui/icons-material/Public';
-import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined';
 import SatelliteAltOutlinedIcon from '@mui/icons-material/SatelliteAltOutlined';
 import SavingsOutlinedIcon from '@mui/icons-material/SavingsOutlined';
 import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
@@ -130,17 +129,27 @@ const prettifyPlaceType = (raw?: string) => {
 const buildAddressLineFromTags = (tags?: Record<string, string>) => {
   if (!tags) return undefined;
   const street = tags["addr:street"] || tags.street;
-  const house = tags["addr:housenumber"];
-  const combinedStreet = house && street ? `${house} ${street}` : street;
-  // Only include fine-grained parts suitable for the 'detail' field: house/street/suburb.
-  // Exclude district/city/state/province to avoid duplication in the "Địa chỉ cụ thể" field.
-  const layers = [combinedStreet, tags["addr:suburb"], tags["addr:place"]]
-    .filter(Boolean)
-    .map((part) => String(part));
-  if (layers.length > 0) {
-    return layers.join(", ");
-  }
-  return tags["addr:full"] || tags["addr:place"] || undefined;
+  const house = tags["addr:housenumber"] || tags.housenumber;
+  const alley =
+    tags["addr:alley"] ||
+    tags["addr:hamlet"] ||
+    tags["addr:quarter"] ||
+    tags["addr:neighbourhood"] ||
+    tags["addr:suburb"] ||
+    tags.alley ||
+    tags.hamlet ||
+    tags.quarter ||
+    tags.neighbourhood ||
+    tags.suburb;
+
+  const detailParts: string[] = [];
+  if (house && street) detailParts.push(`${house} ${street}`);
+  else if (street) detailParts.push(street);
+  else if (house) detailParts.push(house);
+  if (alley) detailParts.push(alley);
+
+  const detail = detailParts.join(", ").trim();
+  return detail || undefined;
 };
 
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -152,7 +161,8 @@ const sanitizeDetail = (raw?: string | null, province?: string, district?: strin
   const parts = [ward, district, province].filter(Boolean).map(String);
   for (const p of parts) {
     try {
-      const re = new RegExp(`\\s*,?\\s*${escapeRegExp(p)}\\s*,?\\s*`, "gi");
+      const pattern = "\\s*,?\\s*" + escapeRegExp(p) + "\\s*,?\\s*";
+      const re = new RegExp(pattern, "gi");
       out = out.replace(re, ", ");
     } catch {
       // ignore
@@ -162,7 +172,8 @@ const sanitizeDetail = (raw?: string | null, province?: string, district?: strin
   const countries = ['Việt Nam', 'Viet Nam', 'Vietnam', 'VN', 'ViệtNam', 'Cộng hòa xã hội chủ nghĩa Việt Nam'];
   for (const c of countries) {
     try {
-      const reC = new RegExp(`\s*,?\s*${escapeRegExp(c)}\s*,?\s*`, "gi");
+      const pattern = "\\s*,?\\s*" + escapeRegExp(c) + "\\s*,?\\s*";
+      const reC = new RegExp(pattern, "gi");
       out = out.replace(reC, ", ");
     } catch {
       // ignore
@@ -175,15 +186,16 @@ const sanitizeDetail = (raw?: string | null, province?: string, district?: strin
     // ignore
   }
   // Remove a short list of common province/city names that might appear standalone
-  const provinces = ['Thành phố Hồ Chí Minh', 'Hồ Chí Minh', 'Ho Chi Minh', 'TP Hồ Chí Minh', 'HCM', 'Hà Nội', 'Ha Noi', 'Đà Nẵng', 'Da Nang', 'Hải Phòng', 'Hai Phong', 'Cần Thơ', 'Can Tho'];
-  for (const p of provinces) {
-    try {
-      const reP = new RegExp(`\s*,?\s*${escapeRegExp(p)}\s*,?\s*`, "gi");
-      out = out.replace(reP, ", ");
-    } catch {
-      // ignore
+    const provinces = ['Thành phố Hồ Chí Minh', 'Hồ Chí Minh', 'Ho Chi Minh', 'TP Hồ Chí Minh', 'HCM', 'Hà Nội', 'Ha Noi', 'Đà Nẵng', 'Da Nang', 'Hải Phòng', 'Hai Phong', 'Cần Thơ', 'Can Tho'];
+    for (const p of provinces) {
+      try {
+        const pattern = "\\s*,?\\s*" + escapeRegExp(p) + "\\s*,?\\s*";
+        const reP = new RegExp(pattern, "gi");
+        out = out.replace(reP, ", ");
+      } catch {
+        // ignore
+      }
     }
-  }
   // collapse multiple commas and trim
   out = out.replace(/\s*,\s*,+/g, ",").replace(/^,\s*/, "").replace(/,\s*$/, "").trim();
   return out || undefined;
@@ -250,39 +262,19 @@ const formatDistanceLabel = (distance?: number) => {
   return `${Math.round(distance)} m`;
 };
 
+type GoogleAddressComponent = { long_name?: string; short_name?: string; types?: string[] };
+
+type GoogleRawAddress = {
+  formatted_address?: string;
+  address_components?: GoogleAddressComponent[];
+};
+
 type GoogleAddressResult = {
   formatted?: string;
   specificDetail?: string;
   plusCode?: string;
-  raw?: unknown;
-  components?: Array<{ long_name?: string; short_name?: string; types?: string[] }>;
-};
-
-const buildGoogleSpecificDetail = (components: Array<{ long_name?: string; short_name?: string; types?: string[] }>, rawFormatted?: string) => {
-  const find = (type: string) => components.find((c) => Array.isArray(c.types) && c.types.includes(type));
-  const pickName = (type: string) => find(type)?.long_name || find(type)?.short_name;
-  const premise = pickName('premise') || pickName('point_of_interest') || pickName('establishment');
-  const subPremise = pickName('subpremise');
-  const streetNumber = pickName('street_number');
-  const route = pickName('route') || pickName('street_address');
-  const alley = pickName('sublocality_level_3') || pickName('sublocality_level_2');
-  const neighborhood = pickName('neighborhood') || pickName('sublocality_level_1');
-
-  const detailParts = [
-    subPremise,
-    premise,
-    alley,
-    streetNumber && route ? `${streetNumber} ${route}` : undefined,
-    !streetNumber && route ? route : undefined,
-    neighborhood,
-  ].filter(Boolean);
-
-  if (detailParts.length === 0) {
-    return rawFormatted;
-  }
-
-  const unique = Array.from(new Set(detailParts));
-  return unique.join(', ');
+  raw?: GoogleRawAddress | null;
+  components?: GoogleAddressComponent[];
 };
 
 type NearbyPlace = {
@@ -690,7 +682,6 @@ export default function CheckoutPage() {
     (option) => option.value === shippingMethod,
   );
   const shippingMethodTitle = currentShippingOption?.title ?? shippingMethod;
-  const shippingMethodDescription = describeShippingMethod(shippingMethod);
   const requiresAddressForShipping =
     (shippingMethod === "standard" || shippingMethod === "express") &&
     !(shippingDestination?.province ||
@@ -925,7 +916,7 @@ export default function CheckoutPage() {
             console.debug("[reverseGeocode] click result:", result);
             if (result) {
               // When user clicks on the map to pin a location, DO NOT overwrite province/district/ward
-              await applyMatchedLocation(result.province, result.district, result.ward, result.detail, lat, lng, false);
+              await applyMatchedLocation(result.province, result.district, result.ward, result.detail, lat, lng, false, result.plusCode);
               toast.info("ℹ️ Bạn có thể tiếp tục thay đổi vị trí hoặc click 'Hoàn thành'");
             }
             await autofillDetailFromGoogle(lat, lng);
@@ -943,16 +934,18 @@ export default function CheckoutPage() {
     ) : null;
   }
 
-  function DraggablePin() {
+  function DraggablePin({ lat, lng }: { lat?: number; lng?: number }) {
     const [pos, setPos] = useState<[number, number] | null>(
-      addressForm.lat && addressForm.lng ? [addressForm.lat, addressForm.lng] : null
+      typeof lat === "number" && typeof lng === "number" ? [lat, lng] : null
     );
 
     useEffect(() => {
-      if (addressForm.lat && addressForm.lng) {
-        setPos([addressForm.lat, addressForm.lng]);
+      if (typeof lat === "number" && typeof lng === "number") {
+        setPos([lat, lng]);
+      } else {
+        setPos(null);
       }
-    }, []);
+    }, [lat, lng]);
 
     if (!pos) return null;
 
@@ -981,11 +974,20 @@ export default function CheckoutPage() {
   function MapPanner({ lat, lng }: { lat?: number; lng?: number }) {
     const map = useMapEvents({});
     useEffect(() => {
-      if (lat && lng && map) {
+      if (lat != null && lng != null && map) {
+        const panes = typeof map.getPanes === "function" ? map.getPanes() : null;
+        if (!panes || !panes.mapPane) {
+          return;
+        }
         try {
           map.setView([lat, lng], 16, { animate: true });
-        } catch {
-          // ignore
+        } catch (error) {
+          console.warn("Map recenter failed, retrying without animation", error);
+          try {
+            map.setView([lat, lng], 16, { animate: false });
+          } catch {
+            // ignore final failure
+          }
         }
       }
     }, [lat, lng, map]);
@@ -1003,8 +1005,24 @@ export default function CheckoutPage() {
         headers: { "Content-Type": "text/plain" },
         body: q,
       });
-      const data = await res.json();
-      const elems = Array.isArray(data.elements) ? data.elements : [];
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        throw new Error(`Overpass API error ${res.status}: ${errorText.slice(0, 120)}`);
+      }
+
+      let data: unknown = null;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        console.error("Overpass API returned non-JSON payload", jsonErr);
+        throw new Error("Overpass API trả về dữ liệu không hợp lệ, vui lòng thử lại sau");
+      }
+      if (!data || typeof data !== "object") {
+        throw new Error("Overpass API không trả dữ liệu hợp lệ");
+      }
+      const elements = (data as { elements?: unknown[] }).elements;
+      const elems: RawElem[] = Array.isArray(elements) ? (elements as RawElem[]) : [];
 
       const haversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
         const toRad = (v: number) => (v * Math.PI) / 180;
@@ -1022,13 +1040,41 @@ export default function CheckoutPage() {
       type PlaceWithDistance = { id: string; name?: string; type?: string; lat: number; lng: number; distance: number; addressLine?: string };
 
       const places: PlaceWithDistance[] = elems
-        .map((el: RawElem) => {
-          const e = el as RawElem;
+        .map((e) => {
           const center = (e["center"] as Record<string, unknown> | undefined) ?? undefined;
           const latP = (e["lat"] as number | string | undefined) ?? (center ? (center["lat"] as number | string | undefined) : undefined) ?? null;
           const lngP = (e["lon"] as number | string | undefined) ?? (center ? (center["lon"] as number | string | undefined) : undefined) ?? null;
           const tags = (e["tags"] as Record<string, string> | undefined) ?? {};
-          const name = tags && (tags.name || tags.shop || tags.amenity) ? (tags.name || tags.shop || tags.amenity) : undefined;
+          const brand = tags.brand || tags["brand:vi"] || tags["brand:en"];
+          const operator = tags.operator || tags["operator:vi"] || tags["operator:en"];
+          const houseName = tags["addr:housename"];
+          const streetLabel = tags["addr:street"] || tags.street;
+          const houseNumber = tags["addr:housenumber"] || tags.housenumber;
+
+          const clean = (value?: string) => (value ? value.trim() : undefined);
+          let displayName = clean(tags.name);
+          const cleanBrand = clean(brand);
+          const cleanOperator = clean(operator);
+          const cleanHouseName = clean(houseName);
+
+          if (displayName && cleanBrand && !displayName.toLowerCase().includes(cleanBrand.toLowerCase())) {
+            displayName = `${displayName} (${cleanBrand})`;
+          }
+
+          if (!displayName && cleanHouseName) {
+            displayName = cleanHouseName;
+          }
+          if (!displayName && cleanBrand) {
+            displayName = cleanBrand;
+          }
+          if (!displayName && cleanOperator) {
+            displayName = cleanOperator;
+          }
+          if (!displayName && houseNumber) {
+            displayName = streetLabel ? `${houseNumber} ${streetLabel}` : `Số ${houseNumber}`;
+          }
+
+          const name = displayName;
           const type = tags && (tags.shop || tags.amenity) ? (tags.shop || tags.amenity) : undefined;
           const id = `${(e["type"] as string) || "node"}_${String(e["id"] ?? "")}`;
           return {
@@ -1047,7 +1093,7 @@ export default function CheckoutPage() {
       setNearbyPlaces(places.map((p: PlaceWithDistance) => ({ id: p.id, name: p.name, type: p.type, lat: p.lat, lng: p.lng, distance: p.distance, addressLine: p.addressLine })));
     } catch (err) {
       console.error('fetchNearbyPlaces failed', err);
-      toast.error('❌ Không thể tìm địa điểm gần đây');
+      toast.error(err instanceof Error ? err.message : '❌ Không thể tìm địa điểm gần đây');
     } finally {
       setLoadingNearby(false);
     }
@@ -1145,9 +1191,10 @@ export default function CheckoutPage() {
     lat?: number,
     lng?: number,
     updateAdminFields = true,
+    plusCode?: string,
   ) => {
     try {
-      console.debug("[Geocoded]", { province: geocodedProvince, district: geocodedDistrict, ward: geocodedWard });
+      console.debug("[Geocoded]", { province: geocodedProvince, district: geocodedDistrict, ward: geocodedWard, plusCode });
       
       if (!geocodedProvince && !geocodedDistrict && !geocodedWard) {
         console.log("[applyMatchedLocation] Coordinate-only response, updating detail only");
@@ -1158,7 +1205,7 @@ export default function CheckoutPage() {
         );
         setAddressForm((a) => ({
           ...a,
-          detail: specific || sanitized || detail || `Vị trí: ${a.lat?.toFixed(4)}, ${a.lng?.toFixed(4)}`,
+          detail: plusCode || specific || sanitized || detail || `Vị trí: ${a.lat?.toFixed(4)}, ${a.lng?.toFixed(4)}`,
           lat: typeof lat === "number" ? lat : a.lat,
           lng: typeof lng === "number" ? lng : a.lng,
           isPinned: !!(typeof lat === "number" ? lat : a.lat) && !!(typeof lng === "number" ? lng : a.lng),
@@ -1179,7 +1226,7 @@ export default function CheckoutPage() {
         );
         setAddressForm((a) => ({
           ...a,
-          detail: specific || sanitized || detail || a.detail || `Vị trí: ${a.lat?.toFixed(4)}, ${a.lng?.toFixed(4)}`,
+          detail: plusCode || specific || sanitized || detail || a.detail || `Vị trí: ${a.lat?.toFixed(4)}, ${a.lng?.toFixed(4)}`,
           lat: typeof lat === "number" ? lat : a.lat,
           lng: typeof lng === "number" ? lng : a.lng,
           isPinned: !!(typeof lat === "number" ? lat : a.lat) && !!(typeof lng === "number" ? lng : a.lng),
@@ -1251,65 +1298,36 @@ export default function CheckoutPage() {
   };
 
   // Use Google Geocoding API to fetch a human-friendly address detail for given coords.
-  const fetchGoogleAddress = async (lat?: number, lng?: number): Promise<GoogleAddressResult | null> => {
+  const fetchGoogleAddress = useCallback(async (lat?: number, lng?: number): Promise<GoogleAddressResult | null> => {
     if (!lat || !lng) return null;
-    const key = import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.REACT_APP_GOOGLE_MAPS_KEY || null;
-    if (!key) {
-      toast.warning('Chưa cấu hình Google Maps API key. Mở Google Maps trong tab mới.');
-      return null;
-    }
     try {
-      const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lng}&key=${key}&language=vi`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (data.status !== 'OK' || !Array.isArray(data.results) || data.results.length === 0) {
-        const status = data.status as string;
-        const apiMessage: string | undefined = data.error_message;
-        const humanMessage = (() => {
-          if (status === 'REQUEST_DENIED') {
-            return apiMessage || 'Google Maps API bị từ chối. Vui lòng kiểm tra API key hoặc bật Geocoding API.';
-          }
-          if (status === 'OVER_QUERY_LIMIT') {
-            return 'Đã vượt hạn mức Google Geocoding API. Vui lòng thử lại sau hoặc kiểm tra quota.';
-          }
-          if (status === 'ZERO_RESULTS') {
-            return 'Google Maps không tìm thấy địa chỉ cho toạ độ này.';
-          }
-          if (status === 'INVALID_REQUEST') {
-            return 'Yêu cầu Google Maps không hợp lệ. Vui lòng thử ghim lại vị trí.';
-          }
-          return apiMessage || `Google Maps trả về trạng thái ${status || 'không xác định'}.`;
-        })();
-
-        if (status === 'ZERO_RESULTS') {
-          toast.info(humanMessage);
-        } else {
-          toast.error(humanMessage);
-        }
-        console.warn('Google geocode returned no results', data);
+      const result = await addressService.reverseGeocode(lat, lng);
+      if (!result || (!result.detail && !result.plusCode)) {
+        toast.info('⚠️ Không lấy được địa chỉ chi tiết, vui lòng nhập thủ công.');
         return null;
       }
-      // Prefer the most specific result (first)
-      const r = data.results[0];
-      // Build a concise detail from address_components: street_number + route + sublocality/neighborhood
-      const comp = (r.address_components || []) as Array<{ long_name?: string; short_name?: string; types?: string[] }>;
-      const specificDetail = buildGoogleSpecificDetail(comp, r.formatted_address) || undefined;
-      const plusCodeRegex = /[A-Z0-9]{4}\+[A-Z0-9]{2,3}/i;
-      const compoundCode = r.plus_code?.compound_code;
-      const compoundToken = compoundCode ? compoundCode.match(plusCodeRegex)?.[0] : undefined;
-      const globalCode = r.plus_code?.global_code;
-      const fallbackToken = globalCode ? globalCode.match(plusCodeRegex)?.[0] : undefined;
-      const plusCode = compoundToken || fallbackToken;
-      const baseFormatted = r.formatted_address || specificDetail || plusCode;
-      const displayFormatted = plusCode && baseFormatted && !baseFormatted.startsWith(plusCode)
-        ? `${plusCode}, ${baseFormatted}`
-        : baseFormatted;
-      return { formatted: displayFormatted, raw: r, components: comp, plusCode, specificDetail };
+      const formattedBase = result.detail || result.plusCode || '';
+      const formatted = result.plusCode && formattedBase && !formattedBase.startsWith(result.plusCode)
+        ? `${result.plusCode}, ${formattedBase}`
+        : formattedBase;
+
+      const rawComponents = Array.isArray(result.raw?.address_components)
+        ? result.raw?.address_components
+        : undefined;
+
+      return {
+        formatted,
+        specificDetail: result.detail,
+        plusCode: result.plusCode,
+        raw: result.raw,
+        components: rawComponents,
+      };
     } catch (err) {
-      console.error('Google geocode failed', err);
+      console.error('Backend reverseGeocode failed', err);
+      toast.error('❌ Không thể truy xuất địa chỉ từ server');
       return null;
     }
-  };
+  }, []);
 
   const autofillDetailFromGoogle = useCallback(async (lat?: number, lng?: number, preset?: GoogleAddressResult | null) => {
     if (!lat || !lng || useRawCoords) return false;
@@ -1369,7 +1387,7 @@ export default function CheckoutPage() {
 
             if (result) {
               // GPS pinning should not override the manual province/district/ward selections
-              await applyMatchedLocation(result.province, result.district, result.ward, result.detail, latitude, longitude, false);
+              await applyMatchedLocation(result.province, result.district, result.ward, result.detail, latitude, longitude, false, result.plusCode);
             }
             await autofillDetailFromGoogle(latitude, longitude);
             if (prevUseRaw) setUseRawCoords(true);
@@ -1436,7 +1454,7 @@ export default function CheckoutPage() {
       console.debug("[reverseGeocode] applyCoordinates result:", result);
     if (result) {
       // Applying raw coords (manual input) should update only detail/coords unless user explicitly wants admin fields changed
-      await applyMatchedLocation(result.province, result.district, result.ward, result.detail, lat, lng, false);
+      await applyMatchedLocation(result.province, result.district, result.ward, result.detail, lat, lng, false, result.plusCode);
       await autofillDetailFromGoogle(lat, lng);
       toast.success("✅ Đã cập nhật địa chỉ từ toạ độ (không thay đổi Tỉnh/Quận/Phường)");
       // fetch nearby POIs when user applies coordinates
@@ -1751,99 +1769,39 @@ export default function CheckoutPage() {
                 })}
               </Grid>
 
-              <Stack direction={{ xs: "column", md: "row" }} spacing={2.5}>
-                <Box
+              <Box
+                sx={{
+                  p: { xs: 2.5, md: 3 },
+                  borderRadius: 4,
+                  background: "linear-gradient(135deg, #fff7ed, #e0f2fe)",
+                  border: "1px solid rgba(15,23,42,0.05)",
+                }}
+              >
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                  <Typography fontWeight={700} color="#0f172a">
+                    Ưu đãi vận chuyển
+                  </Typography>
+                  <Typography variant="caption" color="#475569">
+                    Mục tiêu {formatCurrency(FREE_SHIPPING_THRESHOLD)}
+                  </Typography>
+                </Stack>
+                <LinearProgress
+                  variant="determinate"
+                  value={shippingProgress}
                   sx={{
-                    flex: 1,
-                    p: { xs: 2.5, md: 3 },
-                    borderRadius: 4,
-                    background: "linear-gradient(135deg, #fff7ed, #e0f2fe)",
-                    border: "1px solid rgba(15,23,42,0.05)",
+                    height: 12,
+                    borderRadius: 999,
+                    backgroundColor: "rgba(15,23,42,0.08)",
+                    mb: 1,
+                    "& .MuiLinearProgress-bar": {
+                      background: "linear-gradient(90deg, #fb923c, #f43f5e)",
+                    },
                   }}
-                >
-                  <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                    <Typography fontWeight={700} color="#0f172a">
-                      Ưu đãi vận chuyển
-                    </Typography>
-                    <Typography variant="caption" color="#475569">
-                      Mục tiêu {formatCurrency(FREE_SHIPPING_THRESHOLD)}
-                    </Typography>
-                  </Stack>
-                  <LinearProgress
-                    variant="determinate"
-                    value={shippingProgress}
-                    sx={{
-                      height: 12,
-                      borderRadius: 999,
-                      backgroundColor: "rgba(15,23,42,0.08)",
-                      mb: 1,
-                      "& .MuiLinearProgress-bar": {
-                        background: "linear-gradient(90deg, #fb923c, #f43f5e)",
-                      },
-                    }}
-                  />
-                  <Typography sx={{ color: "#0f172a", fontWeight: 600 }}>
-                    {freeShippingMessage}
-                  </Typography>
-                </Box>
-
-                <Box
-                  sx={{
-                    flex: 1,
-                    p: { xs: 2.5, md: 3 },
-                    borderRadius: 4,
-                    background: "rgba(255,255,255,0.85)",
-                    border: "1px dashed rgba(15,23,42,0.12)",
-                  }}
-                >
-                  <Typography fontWeight={700} color="#0f172a" sx={{ mb: 1 }}>
-                    Điều chỉnh nhanh
-                  </Typography>
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }} sx={{ mb: 1.5 }}>
-                    <Chip
-                      label={`${shippingMethodTitle}${currentShippingOption?.badge ? ` • ${currentShippingOption.badge}` : ""}`}
-                      color={currentShippingOption?.badgeColor ?? "default"}
-                    />
-                    <Typography variant="body2" color="#475569" sx={{ flex: 1 }}>
-                      {shippingMethodDescription}
-                    </Typography>
-                  </Stack>
-                  <Typography variant="caption" color="#94a3b8" sx={{ display: "block", mb: 1.5 }}>
-                    Phí hiện tại: {requiresAddressForShipping ? "Chờ xác định" : shippingFeeLabel}
-                  </Typography>
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-                    <Button
-                      fullWidth
-                      variant="contained"
-                      startIcon={<LocalOfferIcon />}
-                      onClick={() => setVoucherDialogOpen(true)}
-                      sx={{
-                        textTransform: "none",
-                        fontWeight: 700,
-                        background: "linear-gradient(120deg, #fb7185, #f97316)",
-                        boxShadow: "0 10px 25px rgba(249,113,133,0.35)",
-                      }}
-                    >
-                      Quản lý voucher
-                    </Button>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      startIcon={<MyLocationIcon />}
-                      onClick={() => setShowMap(true)}
-                      sx={{
-                        textTransform: "none",
-                        fontWeight: 700,
-                        borderColor: "rgba(15,23,42,0.2)",
-                        color: "#0f172a",
-                        "&:hover": { borderColor: "#0f172a" },
-                      }}
-                    >
-                      Ghim vị trí giao hàng
-                    </Button>
-                  </Stack>
-                </Box>
-              </Stack>
+                />
+                <Typography sx={{ color: "#0f172a", fontWeight: 600 }}>
+                  {freeShippingMessage}
+                </Typography>
+              </Box>
             </Stack>
           </Paper>
 
@@ -2566,6 +2524,7 @@ export default function CheckoutPage() {
                       <Grid item xs={12}>
                         <TextField
                           label="Địa chỉ cụ thể"
+                          placeholder="Ví dụ: 7P26+GH Quận 1, Thành phố Hồ Chí Minh"
                           value={addressForm.detail}
                           onChange={e => {
                             setGoogleFullAddress("");
@@ -2660,28 +2619,6 @@ export default function CheckoutPage() {
                             }}
                           />
 
-                          <Box sx={{ position: 'absolute', top: 16, left: 16, zIndex: 1200, pointerEvents: 'none', maxWidth: 260 }}>
-                            <Paper elevation={0} sx={{ p: 1.5, borderRadius: 3, background: 'rgba(15,23,42,0.7)', color: 'white' }}>
-                              <Stack direction="row" spacing={0.5} alignItems="center">
-                                <PushPinOutlinedIcon sx={{ fontSize: 16, color: 'rgba(248,250,252,0.85)' }} />
-                                <Typography variant="caption" sx={{ letterSpacing: 0.5, textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)' }}>
-                                  Địa điểm đang ghim
-                                </Typography>
-                              </Stack>
-                              <Typography fontWeight={700} sx={{ mt: 0.5 }}>
-                                {addressForm.detail || 'Chưa có mô tả cụ thể'}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                                {[addressForm.ward, addressForm.district].filter(Boolean).join(', ') || 'Chưa rõ khu vực'}
-                              </Typography>
-                              {googleFullAddress && (
-                                <Typography variant="caption" sx={{ display: 'block', mt: 0.75, color: 'rgba(248,250,252,0.9)' }}>
-                                  Google Maps: {googleFullAddress}
-                                </Typography>
-                              )}
-                            </Paper>
-                          </Box>
-
                           <Box sx={{ position: 'absolute', bottom: 16, left: 16, zIndex: 1200, pointerEvents: 'none' }}>
                             <Chip
                               label={`${nearbyPlaces.length} gợi ý quanh đây`}
@@ -2771,11 +2708,11 @@ export default function CheckoutPage() {
                           <MapContainer
                             center={addressForm.lat && addressForm.lng ? [addressForm.lat, addressForm.lng] : [21.0278, 105.8342]}
                             zoom={14}
-                            style={{ height: 260, width: '100%', filter: 'saturate(1.1) contrast(1.04)' }}
+                            style={{ height: 360, width: '100%', filter: 'saturate(1.1) contrast(1.04)' }}
                           >
                             <TileLayer url={buildGoogleTileUrl(mapStyle)} />
                             <LocationMarker />
-                            <DraggablePin />
+                            <DraggablePin lat={addressForm.lat} lng={addressForm.lng} />
                             <MapPanner lat={addressForm.lat} lng={addressForm.lng} />
                           </MapContainer>
                         </Box>
@@ -2854,7 +2791,7 @@ export default function CheckoutPage() {
                               >
                                 {nearbyPlaces.map((p) => {
                                   const distanceLabel = formatDistanceLabel(p.distance);
-                                  const subtitle = [prettifyPlaceType(p.type), p.addressLine].filter(Boolean).join(' • ') || 'Gợi ý gần vị trí ghim';
+                                  const subtitle = [p.addressLine, prettifyPlaceType(p.type)].filter(Boolean).join(' • ') || 'Gợi ý gần vị trí ghim';
                                   return (
                                     <Paper
                                       key={p.id}
@@ -2873,7 +2810,7 @@ export default function CheckoutPage() {
                                     >
                                       <Box sx={{ flex: 1 }}>
                                         <Stack direction="row" spacing={1} alignItems="center">
-                                          <Typography fontWeight={700}>{p.name || prettifyPlaceType(p.type) || 'Địa điểm'}</Typography>
+                                          <Typography fontWeight={700}>{p.name || p.addressLine || prettifyPlaceType(p.type) || 'Địa điểm'}</Typography>
                                           {distanceLabel && (
                                             <Chip
                                               size="small"

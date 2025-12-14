@@ -1,12 +1,12 @@
-import { Dashboard, Inventory, People, Settings } from "@mui/icons-material";
+import { CategoryRounded, Dashboard, Inventory, People, Settings } from "@mui/icons-material";
 import {
-  Box,
-  Drawer,
-  List,
-  ListItemButton,
-  ListItemIcon,
-  ListItemText,
-  Typography,
+    Box,
+    Drawer,
+    List,
+    ListItemButton,
+    ListItemIcon,
+    ListItemText,
+    Typography,
 } from "@mui/material";
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -21,6 +21,7 @@ const menu = [
   { label: "Dashboard", icon: <Dashboard />, path: "/admin" },
   { label: "Users", icon: <People />, path: "/admin/users" },
   { label: "Product Approval", icon: <Inventory />, path: "/admin/products" },
+  { label: "Categories", icon: <CategoryRounded />, path: "/admin/categories" },
   { label: "System Settings", icon: <Settings />, path: "/admin/settings" },
 ];
 
@@ -46,17 +47,23 @@ const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, onToggle, variant }) => {
         </Typography>
       </Box>
       <List>
-        {menu.map((item) => (
-          <ListItemButton
-            key={item.path}
-            component={Link}
-            to={item.path}
-            selected={location.pathname === item.path}
-          >
-            <ListItemIcon>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.label} />
-          </ListItemButton>
-        ))}
+        {menu.map((item) => {
+          const isActive =
+            item.path === "/admin"
+              ? location.pathname === item.path
+              : location.pathname.startsWith(item.path);
+          return (
+            <ListItemButton
+              key={item.path}
+              component={Link}
+              to={item.path}
+              selected={isActive}
+            >
+              <ListItemIcon>{item.icon}</ListItemIcon>
+              <ListItemText primary={item.label} />
+            </ListItemButton>
+          );
+        })}
       </List>
     </Drawer>
   );

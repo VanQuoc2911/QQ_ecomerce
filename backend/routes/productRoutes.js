@@ -2,6 +2,7 @@ import express from "express";
 import {
   getProductById,
   getProductSales,
+  incrementProductView,
   listPendingProducts,
   listProducts,
   listProductsByShop,
@@ -21,6 +22,9 @@ router.get("/pending", verifyToken, roleGuard(["admin"]), listPendingProducts);
 router.get("/", listProducts);
 router.get("/shop/:shopId", listProductsByShop);
 router.get("/:id", getProductById);
+
+// Public: record a product view (increments view counter)
+router.post("/:id/view", incrementProductView);
 
 // product creation - seller or admin
 router.post(

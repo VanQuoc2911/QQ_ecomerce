@@ -490,12 +490,12 @@ export default function ProfileScreen() {
           error={isMissing(['cccd', 'cmnd', 'nationalid'])}
         />
         <Field
-          label="Địa chỉ cư trú"
+          label="Vị trí cụ thể (Mã cộng/Plus Code)"
           value={form.contactInfo.address || ''}
           onChangeText={(text) => updateContact({ address: text })}
           editable={!readonly}
           multiline
-          placeholder="Số nhà, đường, phường/xã, quận/huyện, tỉnh/thành"
+          placeholder="Ví dụ: 7P26+GH Quận 1, Thành phố Hồ Chí Minh (Lấy từ Google Maps)"
           error={isMissing(['địa chỉ', 'address'])}
         />
       </Section>

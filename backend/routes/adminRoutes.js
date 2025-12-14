@@ -17,6 +17,7 @@ import Shop from "../models/Shop.js";
 import SystemSetting from "../models/SystemSettings.js";
 import User from "../models/User.js";
 import { io } from "../server.js";
+import { invalidateEmailTransporter } from "../utils/emailService.js";
 
 const router = express.Router();
 
@@ -343,6 +344,7 @@ router.post("/settings", verifyToken, isAdmin, async (req, res) => {
     }
 
     await settings.save();
+    invalidateEmailTransporter();
 
     // Nếu bật autoApproveProducts, duyệt luôn sản phẩm đang pending
     if (settings.autoApproveProducts) {

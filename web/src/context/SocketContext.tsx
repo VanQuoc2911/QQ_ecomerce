@@ -78,6 +78,12 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       window.dispatchEvent(new CustomEvent("productApproved", { detail: data }));
     });
 
+    // Live update when a product is viewed by a customer
+    socket.on("product:viewed", (data: { productId: string; views: number }) => {
+      // Dispatch a window event so seller pages can update UI
+      window.dispatchEvent(new CustomEvent("productViewed", { detail: data }));
+    });
+
     // Listen for new orders created that concern this seller
     socket.on("order:created", (data: { orderId: string; sellerId: string; message?: string }) => {
       // Notify seller briefly and trigger a refresh in seller pages

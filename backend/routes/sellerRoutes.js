@@ -12,6 +12,7 @@ import {
   getSellerStats,
   getShopInfo,
   updateProduct,
+  updateProductListing,
   updateShopInfo,
 } from "../controllers/sellerController.js";
 import { roleGuard, verifyToken } from "../middleware/authMiddleware.js";
@@ -24,7 +25,7 @@ router.get("/shop", verifyToken, roleGuard(["seller"]), getShopInfo);
 router.put("/shop", verifyToken, roleGuard(["seller"]), updateShopInfo);
 router.get("/orders", verifyToken, roleGuard(["seller"]), getSellerOrders);
 router.get("/products", verifyToken, roleGuard(["seller"]), getMyProducts);
-router.get("/products/:id", getProductById);
+router.get("/products/:id", verifyToken, roleGuard(["seller"]), getProductById);
 router.post(
   "/products",
   verifyToken,
@@ -46,6 +47,12 @@ router.put(
   ]),
   uploadToCloudinary,
   updateProduct
+);
+router.patch(
+  "/products/:id/listing",
+  verifyToken,
+  roleGuard(["seller"]),
+  updateProductListing
 );
 router.delete(
   "/products/:id",

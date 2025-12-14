@@ -1,6 +1,7 @@
 import Order from "../models/Order.js";
 import Product from "../models/Product.js";
 import Shop from "../models/Shop.js";
+import { getIO } from "../utils/socket.js";
 
 /** public: list products (only approved unless admin) */
 export const listProducts = async (req, res) => {
@@ -20,6 +21,7 @@ export const listProducts = async (req, res) => {
     if (!showAll) {
       filter.status = "approved";
       filter.stock = { $gt: 0 }; // Hide out-of-stock products from public
+      filter.isListed = true;
     }
 
     if (q) filter.title = new RegExp(q, "i");
@@ -60,10 +62,12 @@ export const getProductById = async (req, res) => {
     );
     if (!product) return res.status(404).json({ message: "Product not found" });
 
+    const isOwner = product.sellerId?.toString() === req.user?.id;
+    const isAdmin = req.user?.role === "admin";
     if (
-      product.status !== "approved" &&
-      req.user?.role !== "admin" &&
-      product.sellerId?.toString() !== req.user?.id
+      (product.status !== "approved" || product.isListed === false) &&
+      !isAdmin &&
+      !isOwner
     ) {
       return res.status(404).json({ message: "Product not found" });
     }
@@ -71,6 +75,38 @@ export const getProductById = async (req, res) => {
     res.json(product);
   } catch (err) {
     console.error("getProductById error", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+/** Public: increment view count for a product and notify seller via socket */
+export const incrementProductView = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updated = await Product.findByIdAndUpdate(
+      id,
+      { $inc: { views: 1 } },
+      { new: true }
+    ).select("_id views sellerId");
+
+    if (!updated) return res.status(404).json({ message: "Product not found" });
+
+    // Emit socket event to seller room (if io available)
+    try {
+      const io = getIO();
+      if (io && updated.sellerId) {
+        io.to(String(updated.sellerId)).emit("product:viewed", {
+          productId: updated._id,
+          views: updated.views,
+        });
+      }
+    } catch (e) {
+      console.warn("Socket emit failed for product view:", e?.message ?? e);
+    }
+
+    res.json({ productId: updated._id, views: updated.views });
+  } catch (err) {
+    console.error("incrementProductView error", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -125,6 +161,7 @@ export const listProductsByShop = async (req, res) => {
     if (!showAll) {
       filter.status = "approved";
       filter.stock = { $gt: 0 }; // Hide out-of-stock products from public
+      filter.isListed = true;
     }
 
     if (q) filter.title = new RegExp(q, "i");

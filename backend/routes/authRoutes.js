@@ -1,12 +1,14 @@
 import express from "express";
 import {
   changePassword,
+  forgotPassword,
   getProfile,
   googleLogin,
   login,
   refreshToken,
   register,
   requestSeller,
+  resetPassword,
   updateProfile,
 } from "../controllers/authController.js";
 import {
@@ -19,6 +21,8 @@ router.post("/google-login", googleLogin);
 router.post("/register", register);
 router.post("/login", login);
 router.post("/refresh", refreshToken);
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", resetPassword);
 router.get("/profile", verifyToken, getProfile);
 router.post("/request-seller", verifyToken, roleGuard(["user"]), requestSeller);
 router.put("/profile", verifyToken, updateProfile);

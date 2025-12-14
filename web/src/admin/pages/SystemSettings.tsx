@@ -4,20 +4,20 @@ import SaveIcon from "@mui/icons-material/Save";
 import SecurityIcon from "@mui/icons-material/Security";
 import SettingsIcon from "@mui/icons-material/Settings";
 import {
-    Alert,
-    alpha,
-    Box,
-    Button,
-    Card,
-    CardContent,
-    Chip,
-    Container,
-    FormControlLabel,
-    InputAdornment,
-    Snackbar,
-    Switch,
-    TextField,
-    Typography
+  Alert,
+  alpha,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  Container,
+  FormControlLabel,
+  InputAdornment,
+  Snackbar,
+  Switch,
+  TextField,
+  Typography
 } from "@mui/material";
 import Grid from "@mui/material/Grid";
 import MenuItem from "@mui/material/MenuItem";
@@ -29,6 +29,10 @@ interface SmtpSettings {
   email: string;
   smtpServer: string;
   smtpPort: number;
+  username?: string;
+  password?: string;
+  secure?: boolean;
+  fromName?: string;
 }
 
 interface SystemSettings {
@@ -69,6 +73,10 @@ const SettingsPage: React.FC = () => {
   const [email, setEmail] = useState<string>("");
   const [smtpServer, setSmtpServer] = useState<string>("");
   const [smtpPort, setSmtpPort] = useState<string>("587");
+  const [smtpUsername, setSmtpUsername] = useState<string>("");
+  const [smtpPassword, setSmtpPassword] = useState<string>("");
+  const [smtpSecure, setSmtpSecure] = useState<boolean>(false);
+  const [smtpFromName, setSmtpFromName] = useState<string>("");
   const [serviceFeePercent, setServiceFeePercent] = useState<string>("0");
   const [sellerServiceFeePercent, setSellerServiceFeePercent] = useState<string>("0");
   const [successMessage, setSuccessMessage] = useState<string>("");
@@ -103,6 +111,10 @@ const SettingsPage: React.FC = () => {
         setEmail(data.smtp?.email ?? "");
         setSmtpServer(data.smtp?.smtpServer ?? "");
         setSmtpPort(data.smtp?.smtpPort?.toString() ?? "587");
+        setSmtpUsername(data.smtp?.username ?? "");
+        setSmtpPassword(data.smtp?.password ?? "");
+        setSmtpSecure(Boolean(data.smtp?.secure));
+        setSmtpFromName(data.smtp?.fromName ?? "");
         setServiceFeePercent((data.serviceFeePercent ?? 0).toString());
         setSellerServiceFeePercent((data.sellerServiceFeePercent ?? 0).toString());
       } catch (err: unknown) {
@@ -135,6 +147,10 @@ const SettingsPage: React.FC = () => {
           email,
           smtpServer,
           smtpPort: Number(smtpPort),
+          username: smtpUsername,
+          password: smtpPassword,
+          secure: smtpSecure,
+          fromName: smtpFromName,
         },
         serviceFeePercent: normalizedServiceFee,
         sellerServiceFeePercent: normalizedSellerFee,
@@ -576,6 +592,91 @@ const SettingsPage: React.FC = () => {
                         color: "#0288d1",
                       },
                     }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="SMTP Username"
+                    value={smtpUsername}
+                    onChange={(e) => setSmtpUsername(e.target.value)}
+                    variant="outlined"
+                    sx={{
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 2,
+                        "&:hover fieldset": {
+                          borderColor: "#0288d1",
+                        },
+                        "&.Mui-focused fieldset": {
+                          borderColor: "#0288d1",
+                        },
+                      },
+                      "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0288d1",
+                      },
+                    }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="SMTP Password / App Password"
+                    type="password"
+                    value={smtpPassword}
+                    onChange={(e) => setSmtpPassword(e.target.value)}
+                    variant="outlined"
+                    autoComplete="new-password"
+                    sx={{
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 2,
+                        "&:hover fieldset": {
+                          borderColor: "#0288d1",
+                        },
+                        "&.Mui-focused fieldset": {
+                          borderColor: "#0288d1",
+                        },
+                      },
+                      "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0288d1",
+                      },
+                    }}
+                  />
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={smtpSecure}
+                        onChange={(e) => setSmtpSecure(e.target.checked)}
+                        sx={{
+                          "& .MuiSwitch-switchBase.Mui-checked": {
+                            color: "#0288d1",
+                          },
+                          "& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track": {
+                            backgroundColor: "#0288d1",
+                          },
+                        }}
+                      />
+                    }
+                    label="Use secure connection (SSL/TLS)"
+                    sx={{ ml: 0 }}
+                  />
+                  <TextField
+                    fullWidth
+                    label="Sender display name"
+                    value={smtpFromName}
+                    onChange={(e) => setSmtpFromName(e.target.value)}
+                    placeholder="QQ Store"
+                    variant="outlined"
+                    sx={{
+                      "& .MuiOutlinedInput-root": {
+                        borderRadius: 2,
+                        "&:hover fieldset": {
+                          borderColor: "#0288d1",
+                        },
+                        "&.Mui-focused fieldset": {
+                          borderColor: "#0288d1",
+                        },
+                      },
+                      "& .MuiInputLabel-root.Mui-focused": {
+                        color: "#0288d1",
+                      },
+                    }}
+                    helperText="Hiển thị cùng email gửi đi"
                   />
                 </Box>
               </CardContent>

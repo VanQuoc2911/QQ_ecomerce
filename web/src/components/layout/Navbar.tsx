@@ -7,30 +7,30 @@ import SearchIcon from "@mui/icons-material/Search";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import {
-    AppBar,
-    Avatar,
-    Badge,
-    Box,
-    Button,
-    CircularProgress,
-    Container,
-    Divider,
-    Drawer,
-    IconButton,
-    InputAdornment,
-    List,
-    ListItem,
-    ListItemButton,
-    ListItemIcon,
-    ListItemText,
-    Menu,
-    MenuItem,
-    Paper,
-    TextField,
-    Toolbar,
-    Typography,
-    useMediaQuery,
-    useTheme,
+  AppBar,
+  Avatar,
+  Badge,
+  Box,
+  Button,
+  CircularProgress,
+  Container,
+  Divider,
+  Drawer,
+  IconButton,
+  InputAdornment,
+  List,
+  ListItem,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Menu,
+  MenuItem,
+  Paper,
+  TextField,
+  Toolbar,
+  Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -41,7 +41,6 @@ import LoginModal from "../../components/auth/LoginModal";
 import RegisterModal from "../../components/auth/RegisterModal";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/useSocket";
-import RobotWaveIcon from "../chat/RobotWaveIcon";
 import NotificationDetail from "./NotificationDetail";
 
 type CartItem = CartResponse["items"][number];
@@ -342,11 +341,6 @@ export default function Navbar() {
       main: "#ec4899",
       light: "rgba(236,72,153,0.15)",
       border: "rgba(236,72,153,0.25)",
-    },
-    ai: {
-      main: "#a855f7",
-      light: "rgba(168,85,247,0.15)",
-      border: "rgba(168,85,247,0.25)",
     },
     cart: {
       main: "#0ea5e9",
@@ -798,25 +792,6 @@ export default function Navbar() {
                   </Badge>
                 </IconButton>
 
-                {/* AI Chat Button */}
-                <IconButton
-                  component={Link}
-                  to="/ai-chat"
-                  title="Chat với AI hỗ trợ"
-                  sx={{
-                    ml: 1.5,
-                    background: iconAccents.ai.light,
-                    border: `1px solid ${iconAccents.ai.border}`,
-                    transition: "all 0.3s ease",
-                    "&:hover": {
-                      background: "rgba(168,85,247,0.22)",
-                      transform: "translateY(-2px)",
-                    },
-                  }}
-                >
-                  <RobotWaveIcon size={32} />
-                </IconButton>
-
                 {/* Giỏ hàng với hiệu ứng */}
                 <IconButton
                   component={Link}
@@ -991,30 +966,6 @@ export default function Navbar() {
                 </ListItemIcon>
                 <ListItemText
                   primary="Yêu thích"
-                  primaryTypographyProps={{ fontWeight: 700 }}
-                />
-              </ListItemButton>
-            </ListItem>
-
-            {/* AI Chat Button - Mobile */}
-            <ListItem disablePadding sx={{ mb: 1 }}>
-              <ListItemButton
-                component={Link}
-                to="/ai-chat"
-                onClick={() => setDrawerOpen(false)}
-                sx={{
-                  borderRadius: 2,
-                  background: iconAccents.ai.light,
-                  "&:hover": {
-                    background: "rgba(168,85,247,0.18)",
-                  },
-                }}
-              >
-                <ListItemIcon sx={{ color: iconAccents.ai.main, minWidth: 40 }}>
-                  <RobotWaveIcon size={28} animated={false} shadow={false} />
-                </ListItemIcon>
-                <ListItemText
-                  primary="Chat AI"
                   primaryTypographyProps={{ fontWeight: 700 }}
                 />
               </ListItemButton>

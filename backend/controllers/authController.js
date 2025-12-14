@@ -8,6 +8,7 @@ import mongoose from "mongoose";
 
 import SellerRequest from "../models/SellerRequest.js";
 import User from "../models/User.js";
+import { sendEmail } from "../utils/emailService.js";
 import { getNextId } from "../utils/getNextId.js";
 
 dotenv.config();
@@ -422,6 +423,13 @@ const changePassword = async (req, res) => {
         .status(400)
         .json({ success: false, message: "Mật khẩu cũ không đúng" });
 
+    if (oldPassword === newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Mật khẩu mới phải khác mật khẩu cũ",
+      });
+    }
+
     const hashed = await bcrypt.hash(newPassword, 12);
     user.password = hashed;
     await user.save();
@@ -431,6 +439,102 @@ const changePassword = async (req, res) => {
       .json({ success: true, message: "Đổi mật khẩu thành công" });
   } catch (err) {
     console.error("changePassword error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+/* ========================================================================
+   FORGOT / RESET PASSWORD
+======================================================================== */
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email)
+      return res
+        .status(400)
+        .json({ success: false, message: "Email is required" });
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      // Obfuscate existence for security
+      return res.status(200).json({
+        success: true,
+        message:
+          "Nếu email tồn tại trong hệ thống chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu.",
+      });
+    }
+
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const expiresIn = Number(process.env.RESET_TOKEN_EXPIRES_MIN || 15);
+
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpires = Date.now() + expiresIn * 60 * 1000;
+    await user.save();
+
+    const appUrl = process.env.APP_URL || "http://localhost:5173";
+    const resetUrl = `${appUrl}/reset-password?token=${resetToken}`;
+
+    await sendEmail({
+      to: email,
+      subject: "QQ Store - Đặt lại mật khẩu",
+      text: `Bạn đã yêu cầu đặt lại mật khẩu. Truy cập liên kết sau trong ${expiresIn} phút: ${resetUrl}`,
+      html: `
+        <p>Xin chào ${user.name || ""},</p>
+        <p>Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản QQ Store.</p>
+        <p>Nhấp vào liên kết bên dưới trong vòng <strong>${expiresIn} phút</strong> để tiếp tục:</p>
+        <p><a href="${resetUrl}" target="_blank" rel="noopener">Đặt lại mật khẩu</a></p>
+        <p>Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email.</p>
+      `,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Nếu email tồn tại trong hệ thống chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu.",
+    });
+  } catch (err) {
+    console.error("forgotPassword error:", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password)
+      return res
+        .status(400)
+        .json({ success: false, message: "Token và mật khẩu là bắt buộc" });
+
+    const user = await User.findOne({
+      resetPasswordToken: token,
+      resetPasswordExpires: { $gt: Date.now() },
+    });
+
+    if (!user)
+      return res.status(400).json({
+        success: false,
+        message: "Token không hợp lệ hoặc đã hết hạn",
+      });
+
+    const sameAsOld = await bcrypt.compare(password, user.password);
+    if (sameAsOld)
+      return res.status(400).json({
+        success: false,
+        message: "Mật khẩu mới phải khác mật khẩu cũ",
+      });
+
+    const hashed = await bcrypt.hash(password, 12);
+    user.password = hashed;
+    user.resetPasswordToken = null;
+    user.resetPasswordExpires = null;
+    await user.save();
+
+    return res
+      .status(200)
+      .json({ success: true, message: "Đặt lại mật khẩu thành công" });
+  } catch (err) {
+    console.error("resetPassword error:", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
@@ -489,11 +593,13 @@ const requestSeller = async (req, res) => {
 ======================================================================== */
 export {
   changePassword,
+  forgotPassword,
   getProfile,
   googleLogin,
   login,
   refreshToken,
   register,
   requestSeller,
+  resetPassword,
   updateProfile,
 };

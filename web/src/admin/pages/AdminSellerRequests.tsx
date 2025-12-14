@@ -1,5 +1,10 @@
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
+import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import SearchIcon from "@mui/icons-material/Search";
 import {
+  Avatar,
   Box,
   Button,
   Card,
@@ -16,6 +21,7 @@ import {
   Paper,
   Select,
   type SelectChangeEvent,
+  Stack,
   Table,
   TableBody,
   TableCell,
@@ -60,6 +66,10 @@ export default function AdminSellerRequests() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "approved" | "rejected">("all");
   const [requestMessage, setRequestMessage] = useState("");
+
+  const pendingCount = requests.filter((r) => r.status === "pending").length;
+  const approvedCount = requests.filter((r) => r.status === "approved").length;
+  const rejectedCount = requests.filter((r) => r.status === "rejected").length;
 
   const filterRequests = (
     requestList: SellerRequest[],
@@ -216,43 +226,98 @@ export default function AdminSellerRequests() {
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
-      {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" fontWeight={800} mb={2}>
-          🏪 Duyệt Yêu cầu Seller
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Quản lý và duyệt các yêu cầu từ người dùng muốn trở thành seller
-        </Typography>
+      {/* Hero / Summary */}
+      <Box
+        sx={{
+          mb: 4,
+          p: 3,
+          borderRadius: 3,
+          background: "linear-gradient(135deg, #0d47a1, #0288d1)",
+          color: "white",
+          boxShadow: "0 12px 30px rgba(0,0,0,0.12)",
+        }}
+      >
+        <Box sx={{ display: "flex", justifyContent: "space-between", gap: 2, flexWrap: "wrap" }}>
+          <Box>
+            <Typography variant="h4" fontWeight={800} sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              🏪 Duyệt yêu cầu Seller
+            </Typography>
+            <Typography variant="body1" sx={{ opacity: 0.9, mt: 0.5 }}>
+              Xem nhanh trạng thái, lọc và xử lý yêu cầu trở thành seller.
+            </Typography>
+          </Box>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="flex-start">
+            <Button
+              variant="outlined"
+              color="inherit"
+              startIcon={<InfoOutlinedIcon />}
+              onClick={() => filterRequests(requests, searchTerm, statusFilter)}
+            >
+              Cập nhật bộ lọc
+            </Button>
+            <Button
+              variant="contained"
+              color="secondary"
+              startIcon={<RefreshIcon />}
+              onClick={fetchRequests}
+              sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "white", "&:hover": { bgcolor: "rgba(255,255,255,0.3)" } }}
+            >
+              Làm mới dữ liệu
+            </Button>
+          </Stack>
+        </Box>
+
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(3, 1fr)" }, gap: 2, mt: 3 }}>
+          <Card sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "white", border: "1px solid rgba(255,255,255,0.15)" }}>
+            <CardContent>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>⏳ Chờ duyệt</Typography>
+              <Typography variant="h5" fontWeight={800}>{pendingCount}</Typography>
+              <Typography variant="body2" sx={{ opacity: 0.8 }}>Yêu cầu đang cần xử lý</Typography>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "white", border: "1px solid rgba(255,255,255,0.15)" }}>
+            <CardContent>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>✅ Đã duyệt</Typography>
+              <Typography variant="h5" fontWeight={800}>{approvedCount}</Typography>
+              <Typography variant="body2" sx={{ opacity: 0.8 }}>Được chấp thuận</Typography>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: "rgba(255,255,255,0.08)", color: "white", border: "1px solid rgba(255,255,255,0.15)" }}>
+            <CardContent>
+              <Typography variant="caption" sx={{ opacity: 0.8 }}>❌ Từ chối</Typography>
+              <Typography variant="h5" fontWeight={800}>{rejectedCount}</Typography>
+              <Typography variant="body2" sx={{ opacity: 0.8 }}>Bị từ chối / cần xem lại</Typography>
+            </CardContent>
+          </Card>
+        </Box>
       </Box>
 
       {/* Filters Card */}
-      <Card sx={{ mb: 3, borderRadius: 2 }}>
-        <CardContent>
+      <Card sx={{ mb: 3, borderRadius: 2, border: "1px solid #e0e0e0" }}>
+        <CardContent sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", alignItems: "flex-end" }}>
             <TextField
-              placeholder="🔍 Tìm kiếm theo tên cửa hàng, người dùng, email..."
+              placeholder="🔍 Tìm kiếm tên cửa hàng, người yêu cầu, email"
               variant="outlined"
               size="small"
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
-              sx={{ flex: 1, minWidth: 250 }}
+              sx={{ flex: 1, minWidth: 280 }}
               InputProps={{
                 startAdornment: <SearchIcon sx={{ mr: 1, color: "text.secondary" }} />,
               }}
             />
 
-            <FormControl sx={{ minWidth: 200 }}>
+            <FormControl sx={{ minWidth: 220 }} size="small">
               <Select
                 value={statusFilter}
-                label="Lọc theo trạng thái"
+                displayEmpty
                 onChange={(e: SelectChangeEvent<string>) =>
                   handleStatusFilterChange(
                     e.target.value as "all" | "pending" | "approved" | "rejected"
                   )
                 }
               >
-                
                 <MenuItem value="all">📋 Tất cả trạng thái</MenuItem>
                 <MenuItem value="pending">⏳ Chờ duyệt</MenuItem>
                 <MenuItem value="approved">✅ Đã duyệt</MenuItem>
@@ -260,17 +325,31 @@ export default function AdminSellerRequests() {
               </Select>
             </FormControl>
 
-            <Button variant="outlined" onClick={fetchRequests} sx={{ minWidth: 120 }}>
-              🔄 Làm mới
+            <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchRequests} sx={{ minWidth: 140 }}>
+              Làm mới
             </Button>
           </Box>
 
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" color="text.secondary">
-              Hiển thị <strong>{filteredRequests.length}</strong> kết quả (Tổng:{" "}
-              <strong>{requests.length}</strong> yêu cầu)
+          <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
+            <Typography variant="caption" color="text.secondary">
+              Bộ lọc nhanh:
             </Typography>
-          </Box>
+            {(["all", "pending", "approved", "rejected"] as const).map((key) => (
+              <Chip
+                key={key}
+                label={getStatusLabel(key)}
+                color={key === "all" ? "default" : getStatusColor(key)}
+                variant={statusFilter === key ? "filled" : "outlined"}
+                onClick={() => handleStatusFilterChange(key)}
+                clickable
+              />
+            ))}
+            <Chip
+              label={`Hiển thị ${filteredRequests.length}/${requests.length}`}
+              color="info"
+              variant="outlined"
+            />
+          </Stack>
         </CardContent>
       </Card>
 
@@ -289,7 +368,7 @@ export default function AdminSellerRequests() {
           </Typography>
         </Paper>
       ) : (
-        <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
+        <TableContainer component={Paper} sx={{ borderRadius: 2, boxShadow: "0 12px 30px rgba(0,0,0,0.06)" }}>
           <Table>
             <TableHead>
               <TableRow sx={{ backgroundColor: "#f5f5f5" }}>
@@ -312,19 +391,19 @@ export default function AdminSellerRequests() {
                 >
                   <TableCell>
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                      {req.logo && (
-                        <img
-                          src={req.logo}
-                          alt="logo"
-                          style={{
-                            width: 32,
-                            height: 32,
-                            borderRadius: 4,
-                            objectFit: "cover",
-                          }}
-                        />
-                      )}
-                      <Typography fontWeight={600}>{req.shopName}</Typography>
+                      <Avatar
+                        src={req.logo}
+                        variant="rounded"
+                        sx={{ width: 40, height: 40, bgcolor: alpha("#0288d1", 0.08) }}
+                      >
+                        {req.shopName?.[0] || "S"}
+                      </Avatar>
+                      <Box>
+                        <Typography fontWeight={700}>{req.shopName}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          ID: {req._id.slice(-6)}
+                        </Typography>
+                      </Box>
                     </Box>
                   </TableCell>
                   <TableCell>{req.userId.name}</TableCell>
@@ -353,6 +432,7 @@ export default function AdminSellerRequests() {
                           size="small"
                           variant="contained"
                           color="success"
+                          startIcon={<CheckIcon />}
                           onClick={() => handleReview(req, "approve")}
                         >
                           Duyệt
@@ -361,6 +441,7 @@ export default function AdminSellerRequests() {
                           size="small"
                           variant="contained"
                           color="error"
+                          startIcon={<CloseIcon />}
                           onClick={() => handleReview(req, "reject")}
                         >
                           Từ chối
@@ -389,29 +470,6 @@ export default function AdminSellerRequests() {
           </Table>
         </TableContainer>
       )}
-
-      {/* Stats Footer */}
-      {!loading && requests.length > 0 && (
-        <Card sx={{ mt: 3, bgcolor: alpha("#0288d1", 0.05), border: "1px solid", borderColor: alpha("#0288d1", 0.2) }}>
-          <CardContent>
-            <Box sx={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">⏳ Chờ duyệt</Typography>
-                <Typography variant="h6" fontWeight={700}>{requests.filter((r) => r.status === "pending").length}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">✅ Đã duyệt</Typography>
-                <Typography variant="h6" fontWeight={700}>{requests.filter((r) => r.status === "approved").length}</Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">❌ Từ chối</Typography>
-                <Typography variant="h6" fontWeight={700}>{requests.filter((r) => r.status === "rejected").length}</Typography>
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Review Dialog */}
       <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ fontWeight: 700 }}>
