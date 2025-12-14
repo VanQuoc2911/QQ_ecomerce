@@ -67,10 +67,19 @@ export default function AdminShipperRequests() {
   const submitReview = async () => {
     if (!currentRequest) return;
     try {
-      await api.post(`/api/admin/shipper-requests/${currentRequest._id}/review`, { action, reviewNote });
+      const { data } = await api.post<ShipperRequest>(
+        `/api/admin/shipper-requests/${currentRequest._id}/review`,
+        { action, reviewNote },
+      );
+      // If server returns the updated request, update local state optimistically
+      if (data && data._id) {
+        setRequests((prev) => prev.map((r) => (r._id === data._id ? data : r)));
+      } else {
+        // fallback: refresh full list
+        await fetchRequests();
+      }
       toast.success(`Yêu cầu đã được ${action === 'approve' ? 'duyệt' : 'từ chối'}`);
       setOpenDialog(false);
-      fetchRequests();
     } catch (err) {
       console.error(err);
       toast.error('Lỗi khi duyệt hồ sơ shipper');

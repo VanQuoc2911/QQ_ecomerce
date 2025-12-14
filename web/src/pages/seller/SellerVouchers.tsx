@@ -82,14 +82,20 @@ const buildAiPrompt = (params: {
       ? `áp dụng cho đơn từ ${formatCurrency(minOrderValue)}`
       : "cho mọi đơn hàng";
   const parts = [
-    "poster cho chương trình khuyến mãi thương mại điện tử QQ",
+    // emphasize Vietnamese language and market
+    "poster cho chương trình khuyến mãi thương mại điện tử QQ, bằng tiếng Việt 100% (có dấu), dành cho thị trường Việt Nam",
     `mã voucher ${code || "QQSALE"}`,
     discountText,
     minText,
     freeShipping
-      ? "màu xanh dương neon, icon giao hàng, tia tốc độ, font đậm"
-      : "phông nền gradient xanh dương neon, icon túi mua sắm, pháo giấy, font đậm",
-    "illustration phong cách 3D futuristic, không có người, tỷ lệ ngang",
+      ? "màu xanh dương neon, icon giao hàng, tia tốc độ, font đậm, nội dung hiển thị bằng tiếng Việt (unicode có dấu)"
+      : "phông nền gradient xanh dương neon, icon túi mua sắm, pháo giấy, font đậm, hỗ trợ tiếng Việt (ký tự có dấu)",
+    "illustration phong cách 3D futuristic hoặc photorealistic, không có người, tỷ lệ ngang, yếu tố phù hợp với Việt Nam (ví dụ: cờ Việt Nam nhẹ, hoa sen hoặc biểu tượng giao hàng địa phương nếu phù hợp)",
+    // realism and strict text requirements
+    "ultra-detailed, photorealistic, high resolution, realistic lighting, sharp focus, natural shadows, high dynamic range, no watermark, professional advertising banner",
+    "Văn bản trên banner: hiển thị bằng tiếng Việt 100% (có dấu), chữ rõ ràng, đọc dễ dàng, font hỗ trợ tiếng Việt như Noto Sans / Roboto / Inter",
+    "Chú ý: TUYỆT ĐỐI KHÔNG sử dụng chữ Hán, tiếng Trung, tiếng Nhật, tiếng Hàn hoặc bất kỳ ký tự không phải tiếng Việt. Không để ký tự lạ hoặc lỗi font.",
+    "Phong cách: photorealistic hoặc hyper-realistic, màu sắc tươi sáng, kết cấu sắc nét, độ phân giải rất cao",
   ];
   if (highlightText) parts.push(`nhấn mạnh thông điệp: ${highlightText}`);
   return parts.join(", ");
@@ -97,7 +103,8 @@ const buildAiPrompt = (params: {
 
 const buildAiImageUrl = (prompt: string, seed?: number | string) => {
   const safePrompt = encodeURIComponent(prompt.trim());
-  const suffix = `?width=640&height=360&nologo=true&seed=${seed ?? Date.now()}`;
+  // request very high resolution and quality where supported by the image API
+  const suffix = `?width=1920&height=1080&nologo=true&quality=ultra&seed=${seed ?? Date.now()}`;
   return `${AI_IMAGE_ENDPOINT}${safePrompt}${suffix}`;
 };
 
@@ -114,16 +121,16 @@ const buildAiDescription = (params: {
   const segments: string[] = [];
   if (params.freeShipping) {
     if (params.code) {
-      segments.push(`Mã ${params.code} tặng khách miễn phí vận chuyển khi mua sắm tại QQ Commerce.`);
+      segments.push(`Mã ${params.code} tặng khách miễn phí vận chuyển khi mua sắm tại QQ Commerce (dành cho khách hàng tại Việt Nam).`);
     } else {
-      segments.push("Sử dụng voucher freeship này để QQ Commerce chi trả toàn bộ phí giao hàng cho khách.");
+      segments.push("Sử dụng voucher freeship này để QQ Commerce chi trả toàn bộ phí giao hàng cho khách, tối ưu cho thị trường Việt Nam.");
     }
   } else {
     const discount = params.type === "percent" ? `${params.value ?? 0}%` : formatCurrency(params.value ?? 0);
     if (params.code) {
-      segments.push(`Mã ${params.code} giúp khách tiết kiệm ${discount} khi thanh toán tại QQ Commerce.`);
+      segments.push(`Mã ${params.code} giúp khách tiết kiệm ${discount} khi thanh toán tại QQ Commerce. Thông điệp hiển thị bằng tiếng Việt.`);
     } else {
-      segments.push(`Tiết kiệm ngay ${discount} khi nhập mã ưu đãi độc quyền trên QQ Commerce.`);
+      segments.push(`Tiết kiệm ngay ${discount} khi nhập mã ưu đãi độc quyền trên QQ Commerce (áp dụng cho khách hàng Việt Nam).`);
     }
   }
 
@@ -149,8 +156,8 @@ const buildAiDescription = (params: {
 
   segments.push(
     params.freeShipping
-      ? "Freeship do AI đề xuất giúp loại bỏ rào cản phí vận chuyển, cải thiện tỉ lệ chuyển đổi ở giai đoạn thanh toán."
-      : "Mô tả được AI tối ưu nhằm tăng tỉ lệ chuyển đổi và đảm bảo trải nghiệm chuyên nghiệp cho người mua.",
+      ? "Freeship do AI đề xuất giúp loại bỏ rào cản phí vận chuyển, cải thiện tỉ lệ chuyển đổi ở giai đoạn thanh toán (tối ưu cho khách hàng Việt Nam)."
+      : "Mô tả được AI tối ưu nhằm tăng tỉ lệ chuyển đổi và đảm bảo trải nghiệm chuyên nghiệp cho người mua; nội dung hiển thị bằng tiếng Việt, phù hợp với thói quen mua sắm tại Việt Nam.",
   );
   return segments.join(" ");
 };
