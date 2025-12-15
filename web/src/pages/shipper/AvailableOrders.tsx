@@ -1,15 +1,19 @@
+import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import { Box, Button, CircularProgress, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
 import { AxiosError, isAxiosError } from "axios";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import api from "../../api/axios";
+import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/useSocket";
 import type { Order } from "../../types/Order";
 import { getStatusLabel, getStatusMuiColor } from "../../utils/orderStatus";
+import { triggerReportModal } from "../../utils/reportModal";
 
 export default function AvailableOrders() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const { socket } = useSocket();
@@ -62,6 +66,25 @@ export default function AvailableOrders() {
     }
   };
 
+  const handleReportIssue = (order: Order) => {
+    const orderId = order._id;
+    const buyerIdValue = typeof order.userId === "string" ? order.userId : null;
+    const shipperIdRaw = (user as unknown as { _id?: unknown; id?: unknown })?._id ?? (user as unknown as { id?: unknown })?.id ?? null;
+    const shipperIdValue = typeof shipperIdRaw === "string" ? shipperIdRaw : typeof shipperIdRaw === "number" ? String(shipperIdRaw) : null;
+    triggerReportModal({
+      role: "seller",
+      title: `Shipper báo cáo đơn #${orderId.slice(0, 8)}`,
+      category: "shipping_issue",
+      relatedType: "order",
+      relatedId: orderId,
+      metadata: {
+        orderId,
+        buyerId: buyerIdValue,
+        shipperId: shipperIdValue,
+      },
+    });
+  };
+
   if (loading) {
     return (
       <Box display="flex" alignItems="center" justifyContent="center" minHeight="40vh">
@@ -107,6 +130,11 @@ export default function AvailableOrders() {
                     </Button>
                   </TableCell>
                   <TableCell align="right">
+                    <Tooltip title="Báo cáo sự cố">
+                      <IconButton size="small" color="warning" onClick={() => handleReportIssue(o)}>
+                        <ReportProblemIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <IconButton size="small" onClick={() => navigate(`/Order/${o._id}`)}>
                       <VisibilityIcon />
                     </IconButton>

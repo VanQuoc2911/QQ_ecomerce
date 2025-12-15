@@ -1,8 +1,11 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 import FavoriteIcon from "@mui/icons-material/Favorite";
 import MenuIcon from "@mui/icons-material/Menu";
+import MicIcon from "@mui/icons-material/Mic";
+import MicOffIcon from "@mui/icons-material/MicOff";
 import NotificationsIcon from "@mui/icons-material/Notifications";
 import PersonIcon from "@mui/icons-material/Person";
+import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import SearchIcon from "@mui/icons-material/Search";
 import ShoppingCartIcon from "@mui/icons-material/ShoppingCart";
 import StorefrontIcon from "@mui/icons-material/Storefront";
@@ -32,15 +35,19 @@ import {
   useMediaQuery,
   useTheme,
 } from "@mui/material";
-import { useEffect, useRef, useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { cartService, type CartResponse } from "../../api/cartService";
 import { notificationService, type NotificationItem } from "../../api/notificationService";
 import { productService, type ApiProduct } from "../../api/productService";
 import LoginModal from "../../components/auth/LoginModal";
 import RegisterModal from "../../components/auth/RegisterModal";
+import ReportModal from "../../components/report/ReportModal";
+import { DEFAULT_REPORT_CONTEXT, normalizeReportContext, type ReportModalContext } from "../../components/report/reportHelpers";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/useSocket";
+import { REPORT_MODAL_EVENT } from "../../utils/reportModal";
 import NotificationDetail from "./NotificationDetail";
 
 type CartItem = CartResponse["items"][number];
@@ -62,6 +69,18 @@ export default function Navbar() {
   const [selectedNotif, setSelectedNotif] = useState<NotificationItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportContext, setReportContext] = useState<ReportModalContext>(() => ({ ...DEFAULT_REPORT_CONTEXT }));
+
+  const openReportModal = useCallback((payload?: Partial<ReportModalContext>) => {
+    setReportContext(normalizeReportContext(payload));
+    setReportOpen(true);
+  }, []);
+
+  const closeReportModal = useCallback(() => {
+    setReportOpen(false);
+    setReportContext({ ...DEFAULT_REPORT_CONTEXT });
+  }, []);
   
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -69,6 +88,18 @@ export default function Navbar() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const searchRef = useRef<HTMLDivElement>(null);
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<{
+    start: () => void;
+    stop: () => void;
+    lang?: string;
+    interimResults?: boolean;
+    maxAlternatives?: number;
+    onresult?: (event: unknown) => void;
+    onend?: () => void;
+    onerror?: (error: unknown) => void;
+  } | null>(null);
+  const pendingVoiceRef = useRef<string>("");
 
   const fetchCartCount = async (): Promise<void> => {
     try {
@@ -98,7 +129,7 @@ export default function Navbar() {
     try {
       const items = await notificationService.getNotifications();
       setNotifications(items || []);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Fetch notifications failed:", err);
     } finally {
       setNotifLoading(false);
@@ -164,9 +195,86 @@ export default function Navbar() {
   }, [showSearchResults]);
 
   useEffect(() => {
+    type NewableSR = new () => {
+      lang?: string;
+      interimResults?: boolean;
+      maxAlternatives?: number;
+      start: () => void;
+      stop: () => void;
+      onresult?: (event: unknown) => void;
+      onend?: () => void;
+      onerror?: (error: unknown) => void;
+    };
+
+    const win = window as unknown as { SpeechRecognition?: NewableSR; webkitSpeechRecognition?: NewableSR };
+    const SR = win.SpeechRecognition ?? win.webkitSpeechRecognition;
+    if (!SR) return;
+    const recog = new SR();
+    recog.lang = "vi-VN";
+    recog.interimResults = false;
+    recog.maxAlternatives = 1;
+    recog.onresult = (event: unknown) => {
+      const ev = event as { results?: ArrayLike<{ 0?: { transcript?: string } }> };
+      const results = ev.results ?? [];
+      const transcript = Array.from(results)
+        .map((r) => r[0]?.transcript ?? "")
+        .join(" ")
+        .trim();
+      if (transcript) {
+        pendingVoiceRef.current = transcript;
+        setSearchQuery(transcript);
+        void handleSearchChange(transcript);
+        setShowSearchResults(true);
+      }
+    };
+    recog.onend = () => {
+      setListening(false);
+      const final = pendingVoiceRef.current.trim();
+      if (final.length >= 2) {
+        // auto-submit after recognition ends
+        handleSearchSubmit();
+      }
+      pendingVoiceRef.current = "";
+    };
+    recog.onerror = () => setListening(false);
+    recognitionRef.current = recog;
+    return () => {
+      try {
+        recognitionRef.current = null;
+      } catch (err) {
+        // Log any unexpected error during cleanup
+        console.error("Failed to clean up speech recognition:", err);
+      }
+    };
+  }, [handleSearchChange]);
+
+  const toggleListening = async (e?: ReactMouseEvent) => {
+    if (e) e.preventDefault();
+    const recog = recognitionRef.current;
+    if (!recog) return;
+    if (listening) {
+      try { recog.stop(); } catch (err: unknown) { console.error("Failed to stop speech recognition:", err); setListening(false); }
+      setListening(false);
+    } else {
+      try { recog.start(); setListening(true); } catch (err: unknown) { console.error(err); setListening(false); }
+    }
+  };
+
+  useEffect(() => {
     fetchCartCount();
     fetchNotifications();
   }, [user]);
+
+  useEffect(() => {
+    const handleOpenReport = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<ReportModalContext> | undefined>).detail;
+      openReportModal(detail ?? undefined);
+    };
+    window.addEventListener(REPORT_MODAL_EVENT, handleOpenReport as EventListener);
+    return () => {
+      window.removeEventListener(REPORT_MODAL_EVENT, handleOpenReport as EventListener);
+    };
+  }, [openReportModal]);
 
   useEffect(() => {
     const handleCartChange = (event: Event) => {
@@ -549,24 +657,38 @@ export default function Navbar() {
                             <SearchIcon sx={{ color: palette.primary, fontSize: 20 }} />
                           </InputAdornment>
                         ),
-                        endAdornment: searchQuery ? (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: palette.primary,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              mr: 1,
-                            }}
-                            onClick={() => {
-                              setSearchQuery("");
-                              setSearchResults([]);
-                              setShowSearchResults(false);
-                            }}
-                          >
-                            Xóa
-                          </Typography>
-                        ) : null,
+                        endAdornment: (
+                          <InputAdornment position="end" sx={{ gap: 1 }}>
+                            <IconButton
+                              onClick={toggleListening}
+                              size="small"
+                              sx={{
+                                color: listening ? palette.primary : undefined,
+                              }}
+                              title={listening ? "Đang nghe..." : "Tìm bằng giọng nói"}
+                            >
+                              {listening ? <MicOffIcon /> : <MicIcon />}
+                            </IconButton>
+                            {searchQuery ? (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  color: palette.primary,
+                                  fontWeight: 700,
+                                  cursor: "pointer",
+                                  mr: 1,
+                                }}
+                                onClick={() => {
+                                  setSearchQuery("");
+                                  setSearchResults([]);
+                                  setShowSearchResults(false);
+                                }}
+                              >
+                                Xóa
+                              </Typography>
+                            ) : null}
+                          </InputAdornment>
+                        ),
                       }}
                     />
                   </Box>
@@ -757,6 +879,21 @@ export default function Navbar() {
                     </Button>
                   </Box>
                 )}
+                {/* Report / Khiếu nại */}
+                <IconButton
+                  onClick={() => openReportModal()}
+                  title="Khiếu nại / Báo cáo"
+                  sx={{
+                    ml: 1,
+                    background: "rgba(255,243,224,0.9)",
+                    border: "1px solid rgba(245,158,11,0.18)",
+                    color: "#f59e0b",
+                    transition: "all 0.2s ease",
+                    '&:hover': { transform: 'translateY(-2px)', background: 'rgba(255,245,230,0.95)' },
+                  }}
+                >
+                  <ReportProblemIcon sx={{ fontSize: 26 }} />
+                </IconButton>
 
                 {/* Favorites icon */}
                 <IconButton
@@ -971,6 +1108,24 @@ export default function Navbar() {
               </ListItemButton>
             </ListItem>
 
+            <ListItem disablePadding sx={{ mb: 1 }}>
+              <ListItemButton
+                onClick={() => {
+                  setDrawerOpen(false);
+                  openReportModal();
+                }}
+                sx={{
+                  borderRadius: 2,
+                  '&:hover': { background: 'rgba(255,235,205,0.6)' },
+                }}
+              >
+                <ListItemIcon sx={{ color: '#f59e0b', minWidth: 40 }}>
+                  <ReportProblemIcon />
+                </ListItemIcon>
+                <ListItemText primary="Khiếu nại / Báo cáo" primaryTypographyProps={{ fontWeight: 700 }} />
+              </ListItemButton>
+            </ListItem>
+
             {user ? (
               <>
                 <ListItem disablePadding sx={{ mt: 3 }}>
@@ -1096,6 +1251,7 @@ export default function Navbar() {
         </Box>
       </Drawer>
 
+      <ReportModal open={reportOpen} onClose={closeReportModal} context={reportContext} />
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
       <RegisterModal open={registerOpen} onClose={() => setRegisterOpen(false)} />
 

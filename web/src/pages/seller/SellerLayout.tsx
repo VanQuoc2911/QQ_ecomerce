@@ -4,6 +4,7 @@ import LocalOfferOutlinedIcon from "@mui/icons-material/LocalOfferOutlined";
 import MenuRoundedIcon from "@mui/icons-material/MenuRounded";
 import NotificationsNoneRoundedIcon from "@mui/icons-material/NotificationsNoneRounded";
 import ReceiptLongOutlinedIcon from "@mui/icons-material/ReceiptLongOutlined";
+import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import ReviewsOutlinedIcon from "@mui/icons-material/ReviewsOutlined";
 import SpaceDashboardRoundedIcon from "@mui/icons-material/SpaceDashboardRounded";
 import StorefrontOutlinedIcon from "@mui/icons-material/StorefrontOutlined";
@@ -33,8 +34,11 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import type { NotificationItem } from "../../api/notificationService";
 import { notificationService } from "../../api/notificationService";
 import NotificationDetail from "../../components/layout/NotificationDetail";
+import ReportModal from "../../components/report/ReportModal";
+import { DEFAULT_REPORT_CONTEXT, normalizeReportContext, type ReportModalContext } from "../../components/report/reportHelpers";
 import { useAuth } from "../../context/AuthContext";
 import { useSocket } from "../../context/useSocket";
+import { REPORT_MODAL_EVENT } from "../../utils/reportModal";
 
 const SELLER_NOTIF_EVENT = "sellerNotificationsChanged" as const;
 
@@ -64,6 +68,18 @@ export default function SellerLayout() {
   const [notifLoading, setNotifLoading] = useState(false);
   const [selectedNotif, setSelectedNotif] = useState<NotificationItem | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportContext, setReportContext] = useState<ReportModalContext>(() => ({ ...DEFAULT_REPORT_CONTEXT }));
+
+  const openReportModal = useCallback((payload?: Partial<ReportModalContext>) => {
+    setReportContext(normalizeReportContext(payload));
+    setReportOpen(true);
+  }, []);
+
+  const closeReportModal = useCallback(() => {
+    setReportOpen(false);
+    setReportContext({ ...DEFAULT_REPORT_CONTEXT });
+  }, []);
 
   const broadcastChange = () => {
     window.dispatchEvent(new CustomEvent(SELLER_NOTIF_EVENT, { detail: { source: "layout" } }));
@@ -90,6 +106,17 @@ export default function SellerLayout() {
   }, [fetchNotifications]);
 
   useEffect(() => {
+    const handleOpenReport = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<ReportModalContext> | undefined>).detail;
+      openReportModal(detail ?? undefined);
+    };
+    window.addEventListener(REPORT_MODAL_EVENT, handleOpenReport as EventListener);
+    return () => {
+      window.removeEventListener(REPORT_MODAL_EVENT, handleOpenReport as EventListener);
+    };
+  }, [openReportModal]);
+
+  useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ source?: string }>).detail;
       if (detail?.source === "layout") return;
@@ -111,6 +138,21 @@ export default function SellerLayout() {
   }, [socket]);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const handleOpenReport = () => {
+    const sellerIdRaw = (user as unknown as { _id?: unknown; id?: unknown })?._id ?? (user as unknown as { id?: unknown })?.id ?? null;
+    const sellerId = typeof sellerIdRaw === "string" ? sellerIdRaw : typeof sellerIdRaw === "number" ? String(sellerIdRaw) : null;
+    openReportModal({
+      role: "seller",
+      title: "Khiếu nại người bán",
+      category: "seller_issue",
+      relatedType: "seller",
+      relatedId: sellerId,
+      metadata: {
+        sellerId,
+      },
+    });
+  };
 
   const handleNotifIconClick = (event: MouseEvent<HTMLElement>) => {
     setNotifAnchor(event.currentTarget);
@@ -273,15 +315,27 @@ export default function SellerLayout() {
           <Typography variant="body2" sx={{ color: "rgba(15,23,42,0.8)" }}>
             Đội ngũ Seller Care sẽ phản hồi trong 24h.
           </Typography>
-          <Button
-            component={Link}
-            to="/seller/chat"
-            variant="contained"
-            size="small"
-            sx={{ mt: 1.5, background: "linear-gradient(120deg, #2563eb, #0ea5e9)", fontWeight: 600 }}
-          >
-            Liên hệ ngay
-          </Button>
+          <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
+            <Button
+              component={Link}
+              to="/seller/chat"
+              variant="contained"
+              size="small"
+              sx={{ flex: 1, background: "linear-gradient(120deg, #2563eb, #0ea5e9)", fontWeight: 600 }}
+            >
+              Liên hệ ngay
+            </Button>
+            <Button
+              onClick={handleOpenReport}
+              variant="outlined"
+              size="small"
+              color="warning"
+              sx={{ flex: 1, textTransform: "none", fontWeight: 600, borderColor: "rgba(245,158,11,0.7)" }}
+              startIcon={<ReportProblemIcon fontSize="small" />}
+            >
+              Khiếu nại
+            </Button>
+          </Stack>
         </Box>
       </Box>
     </Box>
@@ -319,6 +373,15 @@ export default function SellerLayout() {
                 </Badge>
               </IconButton>
             </Tooltip>
+            <Button
+              onClick={handleOpenReport}
+              startIcon={<ReportProblemIcon />}
+              variant="outlined"
+              color="warning"
+              sx={{ textTransform: "none", fontWeight: 600 }}
+            >
+              Khiếu nại
+            </Button>
             <Button
               component={Link}
               to="/shop"
@@ -482,6 +545,7 @@ export default function SellerLayout() {
       </Menu>
 
       <NotificationDetail open={detailOpen} notification={selectedNotif} onClose={closeDetail} />
+      <ReportModal open={reportOpen} onClose={closeReportModal} context={reportContext} />
     </Box>
   );
 }

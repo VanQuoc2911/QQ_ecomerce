@@ -2,6 +2,8 @@ import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import BoltIcon from "@mui/icons-material/Bolt";
 import FilterAltIcon from "@mui/icons-material/FilterAlt";
 import LocalOfferIcon from "@mui/icons-material/LocalOffer";
+import MicIcon from "@mui/icons-material/Mic";
+import MicOffIcon from "@mui/icons-material/MicOff";
 import NewReleasesIcon from "@mui/icons-material/NewReleases";
 import SearchIcon from "@mui/icons-material/Search";
 import StarIcon from "@mui/icons-material/Star";
@@ -17,6 +19,7 @@ import {
   Chip,
   Container,
   Divider,
+  IconButton,
   InputAdornment,
   LinearProgress,
   MenuItem,
@@ -37,6 +40,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ChangeEvent,
   type FormEvent,
@@ -96,6 +100,20 @@ export default function ProductList() {
 
   const [pendingSearch, setPendingSearch] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
+  const [listening, setListening] = useState(false);
+
+  type SpeechRecognitionLike = {
+    start: () => void;
+    stop: () => void;
+    lang?: string;
+    interimResults?: boolean;
+    maxAlternatives?: number;
+    onresult?: (event: unknown) => void;
+    onend?: () => void;
+    onerror?: (error: unknown) => void;
+  };
+
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const [minPriceInput, setMinPriceInput] = useState("");
   const [maxPriceInput, setMaxPriceInput] = useState("");
@@ -142,6 +160,67 @@ export default function ProductList() {
     ],
     [highRatedCount, products.length, totalProducts],
   );
+
+  useEffect(() => {
+    type NewableSR = new () => {
+      lang?: string;
+      interimResults?: boolean;
+      maxAlternatives?: number;
+      start: () => void;
+      stop: () => void;
+      onresult?: (event: unknown) => void;
+      onend?: () => void;
+      onerror?: (error: unknown) => void;
+    };
+
+    const win = window as unknown as {
+      SpeechRecognition?: NewableSR;
+      webkitSpeechRecognition?: NewableSR;
+    };
+
+    const SR = win.SpeechRecognition ?? win.webkitSpeechRecognition;
+    if (!SR) return;
+    const recog = new SR();
+    recog.lang = "vi-VN";
+    recog.interimResults = false;
+    recog.maxAlternatives = 1;
+    recog.onresult = (event: unknown) => {
+      const ev = event as { results?: ArrayLike<{ 0?: { transcript?: string } }> };
+      const results = ev.results ?? [];
+      const transcript = Array.from(results)
+        .map((r) => r[0]?.transcript ?? "")
+        .join(" ")
+        .trim();
+      if (transcript) setPendingSearch((prev) => (prev ? `${prev} ${transcript}` : transcript));
+    };
+    recog.onend = () => setListening(false);
+    recog.onerror = () => setListening(false);
+    recognitionRef.current = recog;
+    return () => {
+      try {
+        recognitionRef.current = null;
+      } catch (err) {
+        // ignore errors when clearing recognition reference
+        console.error("Error clearing speech recognition ref:", err);
+      }
+    };
+  }, []);
+
+  const toggleListening = () => {
+    const recog = recognitionRef.current;
+    if (!recog) return;
+    if (listening) {
+      try {
+        recog.stop();
+      } catch (err) {
+        // ignore errors when stopping recognition
+        console.error("Error stopping speech recognition:", err);
+      }
+      setListening(false);
+    } else {
+      try { recog.start(); setListening(true); } catch { setListening(false); }
+    }
+  };
 
   const activeQuickFilterLabel = activeQuickFilter ? quickFilterLabel(activeQuickFilter) : "Không dùng";
 
@@ -288,7 +367,7 @@ export default function ProductList() {
         if (shop?.province) unique.add(shop.province);
       });
       setProvinces(Array.from(unique).sort());
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Error fetching provinces:", err);
     } finally {
       setLoadingProvinces(false);
@@ -303,7 +382,7 @@ export default function ProductList() {
         if (product.origin) unique.add(product.origin);
       });
       setOrigins(Array.from(unique).sort());
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Error fetching origins:", err);
     } finally {
       setLoadingOrigins(false);
@@ -358,7 +437,7 @@ export default function ProductList() {
         else if (sortBy === "price-desc") items = [...items].sort((a, b) => b.price - a.price);
 
         if (!cancelled) setProductResponse({ ...response, items });
-      } catch (err) {
+      } catch (err: unknown) {
         console.error(err);
         if (!cancelled) setError("Lỗi khi tải sản phẩm");
       } finally {
@@ -732,7 +811,10 @@ export default function ProductList() {
                   "& .MuiOutlinedInput-notchedOutline": { border: "none" },
                 }}
                 endAdornment={
-                  <InputAdornment position="end">
+                  <InputAdornment position="end" sx={{ gap: 1 }}>
+                    <IconButton onClick={toggleListening} edge="end" size="small" sx={{ mr: 1 }}>
+                      {listening ? <MicOffIcon color="error" /> : <MicIcon />}
+                    </IconButton>
                     <Button type="submit" variant="contained" color="secondary" sx={{ borderRadius: 999 }}>
                       Tìm kiếm
                     </Button>

@@ -8,7 +8,13 @@ import {
 } from "../utils/payosClient.js";
 import { getIO } from "../utils/socket.js";
 
-const PAYOS_SUCCESS_STATUSES = new Set(["PAID", "PROCESSING"]);
+const PAYOS_SUCCESS_STATUSES = new Set([
+  "PAID",
+  "PROCESSING",
+  "COMPLETED",
+  "SUCCESS",
+  "SUCCEEDED",
+]);
 const PAYOS_PENDING_STATUSES = new Set(["PENDING", "UNDERPAID"]);
 const PAYOS_FAILURE_STATUSES = new Set([
   "CANCELLED",
@@ -16,6 +22,11 @@ const PAYOS_FAILURE_STATUSES = new Set([
   "EXPIRED",
   "REJECTED",
 ]);
+const normalizePayosStatus = (status) =>
+  typeof status === "string" ? status.toUpperCase() : "";
+
+const hasStatus = (set, status) => set.has(normalizePayosStatus(status));
+
 const PAYOS_RETRY_WINDOW_MS = 10 * 60 * 60 * 1000; // 10 hours
 const PAYOS_MAX_RETRIES = Number(process.env.PAYOS_MAX_RETRIES || 3);
 
@@ -58,7 +69,7 @@ const normalizeTransactions = (transactions = []) =>
   }));
 
 const updateOrderFromPayOSLink = (order, link, extras = {}) => {
-  const previousStatus = order.payosPayment?.status;
+  const previousStatusRaw = order.payosPayment?.status;
   const existing =
     order.payosPayment && typeof order.payosPayment.toObject === "function"
       ? order.payosPayment.toObject()
@@ -103,19 +114,20 @@ const updateOrderFromPayOSLink = (order, link, extras = {}) => {
     order.markModified("payosPayment");
   }
 
-  const nextStatus = order.payosPayment.status;
+  const nextStatus = normalizePayosStatus(order.payosPayment.status);
+  const previousStatus = normalizePayosStatus(previousStatusRaw);
 
-  if (PAYOS_SUCCESS_STATUSES.has(nextStatus)) {
+  if (hasStatus(PAYOS_SUCCESS_STATUSES, nextStatus)) {
     clearPaymentDeadline(order);
     if (!["processing", "completed"].includes(order.status)) {
       order.status = "processing";
     }
-  } else if (PAYOS_FAILURE_STATUSES.has(nextStatus)) {
+  } else if (hasStatus(PAYOS_FAILURE_STATUSES, nextStatus)) {
     schedulePaymentRetryWindow(order);
     if (!["shipping", "completed"].includes(order.status)) {
       order.status = "pending";
     }
-  } else if (PAYOS_PENDING_STATUSES.has(nextStatus)) {
+  } else if (hasStatus(PAYOS_PENDING_STATUSES, nextStatus)) {
     // keep countdown alive for pending links
     const deadlineMs = order.paymentDeadline
       ? new Date(order.paymentDeadline).getTime()
@@ -146,7 +158,8 @@ const getOrderAmount = (order) => {
 
 const canReuseExistingLink = (order) => {
   if (!order.payosPayment?.status) return false;
-  if (!PAYOS_PENDING_STATUSES.has(order.payosPayment.status)) return false;
+  if (!hasStatus(PAYOS_PENDING_STATUSES, order.payosPayment.status))
+    return false;
   if (!order.payosPayment.expiredAt) return true;
   return order.payosPayment.expiredAt.getTime() > Date.now();
 };
@@ -304,7 +317,7 @@ export const createPayosPaymentLink = async (req, res) => {
         updateOrderFromPayOSLink(order, link);
         await order.save();
 
-        if (PAYOS_SUCCESS_STATUSES.has(order.payosPayment.status)) {
+        if (hasStatus(PAYOS_SUCCESS_STATUSES, order.payosPayment.status)) {
           return res.status(409).json({
             message: "Đơn hàng đã được thanh toán.",
             status: order.payosPayment.status,
@@ -393,8 +406,8 @@ export const handlePayosWebhook = async (req, res) => {
 
     let shouldNotify = false;
     if (
-      PAYOS_SUCCESS_STATUSES.has(nextStatus) &&
-      !PAYOS_SUCCESS_STATUSES.has(previousStatus)
+      hasStatus(PAYOS_SUCCESS_STATUSES, nextStatus) &&
+      !hasStatus(PAYOS_SUCCESS_STATUSES, previousStatus)
     ) {
       order.payosPayment.lastNotificationStatus = nextStatus;
       shouldNotify = true;
@@ -438,7 +451,7 @@ export const getOrderPaymentStatus = async (req, res) => {
 
     const paymentStatus = order.payosPayment?.status || "unknown";
     const canRetryPayment =
-      PAYOS_FAILURE_STATUSES.has(paymentStatus) || order.paymentExpired;
+      hasStatus(PAYOS_FAILURE_STATUSES, paymentStatus) || order.paymentExpired;
 
     const availablePaymentMethods = [
       { method: "payos", label: "PayOS" },

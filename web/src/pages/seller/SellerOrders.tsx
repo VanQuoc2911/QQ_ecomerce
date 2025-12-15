@@ -5,37 +5,38 @@ import LocalShippingOutlinedIcon from "@mui/icons-material/LocalShippingOutlined
 import MonetizationOnOutlinedIcon from "@mui/icons-material/MonetizationOnOutlined";
 import PendingActionsOutlinedIcon from "@mui/icons-material/PendingActionsOutlined";
 import RefreshRoundedIcon from "@mui/icons-material/RefreshRounded";
+import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import TrendingUpRoundedIcon from "@mui/icons-material/TrendingUpRounded";
 import {
-  Avatar,
-  Box,
-  Button,
-  Card,
-  CardContent,
-  Chip,
-  Divider,
-  Drawer,
-  IconButton,
-  InputAdornment,
-  Paper,
-  Stack,
-  Step,
-  StepLabel,
-  Stepper,
-  Tab,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TablePagination,
-  TableRow,
-  Tabs,
-  TextField,
-  Tooltip,
-  Typography,
-  type ButtonProps,
+    Avatar,
+    Box,
+    Button,
+    Card,
+    CardContent,
+    Chip,
+    Divider,
+    Drawer,
+    IconButton,
+    InputAdornment,
+    Paper,
+    Stack,
+    Step,
+    StepLabel,
+    Stepper,
+    Tab,
+    Table,
+    TableBody,
+    TableCell,
+    TableContainer,
+    TableHead,
+    TablePagination,
+    TableRow,
+    Tabs,
+    TextField,
+    Tooltip,
+    Typography,
+    type ButtonProps,
 } from "@mui/material";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import api from "../../api/axios";
@@ -43,6 +44,7 @@ import { orderService, type OrderDetailResponse } from "../../api/orderService";
 import { sellerService, type SellerStats } from "../../api/sellerService";
 import { useAuth } from "../../context/AuthContext";
 import { getStatusLabel, isAwaitingPayment } from "../../utils/orderStatus";
+import { triggerReportModal } from "../../utils/reportModal";
 
 import { io } from "socket.io-client";
 
@@ -180,6 +182,32 @@ export default function SellerOrders() {
     () => new Intl.NumberFormat("vi-VN", { style: "currency", currency: "VND", maximumFractionDigits: 0 }),
     []
   );
+
+  const handleReportBuyer = () => {
+    if (!selectedOrder) return;
+    const orderId = selectedOrder._id ?? "";
+    const buyerRaw = selectedOrder.userId as unknown;
+    const buyerId =
+      typeof buyerRaw === "object" && buyerRaw !== null
+        ? (buyerRaw as { _id?: unknown; id?: unknown })._id ?? (buyerRaw as { id?: unknown }).id ?? null
+        : buyerRaw;
+    const buyerIdValue = typeof buyerId === "string" ? buyerId : typeof buyerId === "number" ? String(buyerId) : null;
+    const sellerIdRaw = (user as unknown as { _id?: unknown; id?: unknown })?._id ?? (user as unknown as { id?: unknown })?.id ?? null;
+    const sellerIdValue = typeof sellerIdRaw === "string" ? sellerIdRaw : typeof sellerIdRaw === "number" ? String(sellerIdRaw) : null;
+    const shortCode = typeof orderId === "string" ? `#${orderId.slice(0, 8)}` : "";
+    triggerReportModal({
+      role: "user",
+      title: `Khiếu nại khách hàng ${shortCode}`.trim(),
+      category: "order_issue",
+      relatedType: "order",
+      relatedId: typeof orderId === "string" ? orderId : null,
+      metadata: {
+        orderId: typeof orderId === "string" ? orderId : null,
+        buyerId: buyerIdValue,
+        sellerId: sellerIdValue,
+      },
+    });
+  };
 
   const openOrderDetail = async (orderId: string) => {
     try {
@@ -483,7 +511,7 @@ export default function SellerOrders() {
       <Drawer anchor="right" open={drawerOpen && !!selectedOrder} onClose={closeDrawer} PaperProps={{ sx: { width: { xs: "100%", sm: 480 } } }}>
         {selectedOrder && (
           <Box sx={{ height: "100%", display: "flex", flexDirection: "column", background: "#ffffff", color: "#0f172a" }}>
-            <Box sx={{ p: 3, borderBottom: "1px solid rgba(37,99,235,0.25)", display: "flex", alignItems: "center" }}>
+            <Box sx={{ p: 3, borderBottom: "1px solid rgba(37,99,235,0.25)", display: "flex", alignItems: "center", gap: 1.5 }}>
               <Box>
                 <Typography variant="overline" sx={{ color: "#60a5fa" }}>
                   Chi tiết đơn hàng
@@ -493,6 +521,24 @@ export default function SellerOrders() {
                 </Typography>
               </Box>
               <Box sx={{ flex: 1 }} />
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<ReportProblemIcon fontSize="small" />}
+                onClick={handleReportBuyer}
+                sx={{
+                  borderColor: "rgba(245,158,11,0.6)",
+                  color: "#d97706",
+                  textTransform: "none",
+                  fontWeight: 600,
+                  '&:hover': {
+                    borderColor: "rgba(217,119,6,0.8)",
+                    background: "rgba(254,243,199,0.6)",
+                  },
+                }}
+              >
+                Báo cáo khách
+              </Button>
               <IconButton onClick={closeDrawer} sx={{ color: "#2563eb" }}>
                 <CloseRoundedIcon />
               </IconButton>

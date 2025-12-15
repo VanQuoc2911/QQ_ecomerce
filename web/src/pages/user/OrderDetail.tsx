@@ -1,15 +1,16 @@
 import RateReviewIcon from "@mui/icons-material/RateReview";
+import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import {
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Container,
-  Divider,
-  Paper,
-  Stack,
-  Typography,
-  useTheme,
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    Container,
+    Divider,
+    Paper,
+    Stack,
+    Typography,
+    useTheme,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,7 +20,9 @@ import { io } from "socket.io-client";
 import { orderService, type OrderDetailResponse } from "../../api/orderService";
 import { paymentService } from "../../api/paymentService";
 import ReviewModal from "../../components/ReviewModal";
+import { useAuth } from "../../context/AuthContext";
 import { STATUS_CONFIG } from "../../utils/orderStatus";
+import { triggerReportModal } from "../../utils/reportModal";
 
 // use centralized status config
 // NOTE: components below reference STATUS_CONFIG for labels/colors/borders
@@ -86,6 +89,7 @@ export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useAuth();
   const [order, setOrder] = useState<OrderDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState(false);
@@ -358,6 +362,65 @@ export default function OrderDetail() {
   const shippingFee = normalizedOrder.shippingFee ?? normalizedOrder.shippingMeta?.summaryEntry?.fee ?? 0;
   const voucherDiscount = normalizedOrder.voucherDiscount ?? normalizedOrder.discount ?? 0;
   const computedTotal = Math.max(itemsSubtotal + shippingFee - voucherDiscount, 0);
+  const reporterRaw = (user as unknown as { _id?: unknown; id?: unknown })?._id ?? (user as unknown as { id?: unknown })?.id ?? null;
+  const reporterId = typeof reporterRaw === "string" ? reporterRaw : typeof reporterRaw === "number" ? String(reporterRaw) : null;
+
+  const collectSellerIds = () => {
+    const idSet = new Set<string>();
+    [...(normalizedOrder.products ?? []), ...(normalizedOrder.items ?? [])].forEach((item) => {
+      if (item?.sellerId) idSet.add(item.sellerId);
+    });
+    return Array.from(idSet);
+  };
+
+  const handleReportSeller = () => {
+    const sellerIds = collectSellerIds();
+    const orderCode = normalizedOrder._id?.slice?.(0, 8) ?? "";
+    triggerReportModal({
+      role: "seller",
+      title: `Báo cáo shop ${orderCode ? `đơn #${orderCode}` : ""}`.trim(),
+      category: "order_issue",
+      relatedType: "order",
+      relatedId: normalizedOrder._id,
+      metadata: {
+        orderId: normalizedOrder._id,
+        sellerIds,
+        reporterId,
+      },
+    });
+  };
+
+  const handleReportShipper = () => {
+    if (!normalizedOrder.shipperSnapshot) {
+      triggerReportModal({
+        role: "shipper",
+        title: "Báo cáo shipper",
+        category: "shipping_issue",
+        relatedType: "order",
+        relatedId: normalizedOrder._id,
+        metadata: {
+          orderId: normalizedOrder._id,
+          reporterId,
+        },
+      });
+      return;
+    }
+    const shipperIdRaw = normalizedOrder.shipperSnapshot._id ?? null;
+    const shipperId = typeof shipperIdRaw === "string" ? shipperIdRaw : typeof shipperIdRaw === "number" ? String(shipperIdRaw) : null;
+    const orderCode = normalizedOrder._id?.slice?.(0, 8) ?? "";
+    triggerReportModal({
+      role: "shipper",
+      title: `Báo cáo shipper ${orderCode ? `đơn #${orderCode}` : ""}`.trim(),
+      category: "shipping_issue",
+      relatedType: "order",
+      relatedId: normalizedOrder._id,
+      metadata: {
+        orderId: normalizedOrder._id,
+        shipperId,
+        reporterId,
+      },
+    });
+  };
   const totalToDisplay = normalizedOrder.totalAmount ?? computedTotal;
   const statusBadge =
     STATUS_CONFIG[order.status ?? ""] || {
@@ -487,6 +550,28 @@ export default function OrderDetail() {
         >
           Chi tiết đơn hàng {order._id}
         </Typography>
+
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 3 }}>
+          <Button
+            variant="outlined"
+            color="warning"
+            startIcon={<ReportProblemIcon />}
+            onClick={handleReportSeller}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            Báo cáo shop
+          </Button>
+          <Button
+            variant="outlined"
+            color="warning"
+            startIcon={<ReportProblemIcon />}
+            onClick={handleReportShipper}
+            disabled={!normalizedOrder.shipperSnapshot}
+            sx={{ textTransform: "none", fontWeight: 600 }}
+          >
+            Báo cáo shipper
+          </Button>
+        </Stack>
 
         <Grid container spacing={4}>
           {/* Thông tin khách hàng */}

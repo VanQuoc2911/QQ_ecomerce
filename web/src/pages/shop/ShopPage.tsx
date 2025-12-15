@@ -3,26 +3,27 @@ import LanguageIcon from "@mui/icons-material/Language";
 import LocalShippingIcon from "@mui/icons-material/LocalShipping";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import PhoneIcon from "@mui/icons-material/Phone";
+import ReportProblemIcon from "@mui/icons-material/ReportProblem";
 import SearchIcon from "@mui/icons-material/Search";
 import StarIcon from "@mui/icons-material/Star";
 import StorefrontIcon from "@mui/icons-material/Storefront";
 import {
-  Alert,
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Container,
-  Divider,
-  InputAdornment,
-  MenuItem,
-  Paper,
-  Select,
-  Skeleton,
-  Stack,
-  TextField,
-  Typography,
+    Alert,
+    Avatar,
+    Box,
+    Button,
+    Chip,
+    CircularProgress,
+    Container,
+    Divider,
+    InputAdornment,
+    MenuItem,
+    Paper,
+    Select,
+    Skeleton,
+    Stack,
+    TextField,
+    Typography,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +35,7 @@ import ShopChatPopup from "../../components/chat/ShopChatPopup";
 import ProductCard from "../../components/user/ProductCard";
 import { useAuth } from "../../context/AuthContext";
 import type { ProductCard as ProductCardType } from "../../types/ProductCard";
+import { triggerReportModal } from "../../utils/reportModal";
 
 const PAGE_SIZE = 12;
 const currencyFormatter = new Intl.NumberFormat("vi-VN", {
@@ -65,6 +67,29 @@ export default function ShopPage() {
 
   const handleScrollToProducts = () => {
     productsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleReportShop = () => {
+    if (!user) {
+      window.dispatchEvent(new Event("openLogin"));
+      return;
+    }
+    const reporterRaw = (user as unknown as { _id?: unknown; id?: unknown })?._id ?? (user as unknown as { id?: unknown })?.id ?? null;
+    const reporterId = typeof reporterRaw === "string" ? reporterRaw : typeof reporterRaw === "number" ? String(reporterRaw) : null;
+    const sellerIdRaw = (shop as unknown as { ownerId?: unknown; owner?: { _id?: unknown } })?.ownerId ?? (shop as unknown as { owner?: { _id?: unknown } })?.owner?._id ?? null;
+    const sellerId = typeof sellerIdRaw === "string" ? sellerIdRaw : typeof sellerIdRaw === "number" ? String(sellerIdRaw) : null;
+    triggerReportModal({
+      role: "seller",
+      title: shop?.shopName ? `Báo cáo shop ${shop.shopName}` : "Báo cáo shop",
+      category: "shop_issue",
+      relatedType: "shop",
+      relatedId: shopId ?? null,
+      metadata: {
+        shopId: shopId ?? null,
+        sellerId,
+        reporterId,
+      },
+    });
   };
 
   const fetchShopProfile = useCallback(async () => {
@@ -327,6 +352,15 @@ export default function ShopPage() {
                   onClick={handleAskShop}
                 >
                   Hỏi shop
+                </Button>
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={<ReportProblemIcon />}
+                  sx={{ textTransform: "none", borderColor: "rgba(253,186,116,0.7)", color: "#fed7aa" }}
+                  onClick={handleReportShop}
+                >
+                  Báo cáo shop
                 </Button>
               </Stack>
             </Grid>

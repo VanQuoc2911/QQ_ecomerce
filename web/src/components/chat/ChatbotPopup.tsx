@@ -1,5 +1,4 @@
 import CloseIcon from "@mui/icons-material/Close";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import SendIcon from "@mui/icons-material/Send";
 import {
   Box,
@@ -48,7 +47,6 @@ const rolePresets: Record<string, string[]> = {
     "Kiểm tra đơn đang chờ",
     "Gợi ý trả lời khách",
     "Hướng dẫn cập nhật kho",
-    "Thống kê doanh thu hôm nay",
   ],
   admin: [
     "Tình trạng hệ thống",
@@ -96,7 +94,7 @@ const greetingByRole: Record<string, (name?: string | null) => string> = {
       : "Xin chào! Tôi là trợ lý AI QQ. Bạn cần hỗ trợ gì hôm nay? Tôi có quyền truy cập toàn bộ dữ liệu của hệ thống để trả lời chính xác nhất.",
 };
 
-export default function ChatbotPopup({ onClose, onOpenFull }: Props) {
+export default function ChatbotPopup({ onClose }: Props) {
   const location = useLocation();
   const { role, user } = useAuth();
   const effectiveRole = role ?? "default";
@@ -212,8 +210,8 @@ export default function ChatbotPopup({ onClose, onOpenFull }: Props) {
     <Paper
       elevation={10}
       sx={{
-        width: 360,
-        height: 480,
+        width: { xs: "min(100vw - 24px, 440px)", sm: 480, md: 520 },
+        height: { xs: 520, md: 600 },
         borderRadius: 4,
         display: "flex",
         flexDirection: "column",
@@ -263,14 +261,6 @@ export default function ChatbotPopup({ onClose, onOpenFull }: Props) {
               />
             </Tooltip>
           )}
-          <IconButton
-            size="small"
-            onClick={onOpenFull}
-            sx={{ color: "#fff", mr: 1 }}
-            aria-label="Mở rộng"
-          >
-            <OpenInNewIcon fontSize="small" />
-          </IconButton>
           <IconButton size="small" onClick={onClose} sx={{ color: "#fff" }}>
             <CloseIcon fontSize="small" />
           </IconButton>
