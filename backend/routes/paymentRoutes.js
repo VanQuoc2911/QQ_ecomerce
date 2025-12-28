@@ -3,6 +3,7 @@ import { createMomoPayment } from "../controllers/paymentController.js";
 import {
   createPayosPaymentLink,
   handlePayosWebhook,
+  syncPayosPaymentStatus,
 } from "../controllers/payosController.js";
 import {
   generateBankingQR,
@@ -33,5 +34,6 @@ router.post("/qr/:orderId/result", verifyToken, handleBankingPaymentResult);
 // PayOS routes
 router.post("/payos/create-link", verifyToken, createPayosPaymentLink);
 router.post("/payos/webhook", handlePayosWebhook);
+router.post("/payos/sync-status", verifyToken, syncPayosPaymentStatus);
 
 export default router;

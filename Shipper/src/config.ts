@@ -4,4 +4,4 @@
 // For iOS simulator use `http://localhost:4000`. For a physical device, set
 // this to your machine's LAN IP (e.g. http://192.168.x.y:4000) and ensure
 // your firewall allows incoming connections on that port.
-export const BACKEND_URL = 'http://10.0.96.108:4000';
+export const BACKEND_URL = 'http://192.168.134.7:4000';

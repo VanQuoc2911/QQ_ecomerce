@@ -475,3 +475,89 @@ export const getOrderPaymentStatus = async (req, res) => {
     });
   }
 };
+
+export const syncPayosPaymentStatus = async (req, res) => {
+  try {
+    ensurePayOSConfig();
+
+    const { orderId, orderCode } = req.body || {};
+    if (!orderId || !mongoose.Types.ObjectId.isValid(orderId)) {
+      return res.status(400).json({ message: "orderId không hợp lệ" });
+    }
+
+    const userId = req.user?.id ? String(req.user.id) : null;
+    if (!userId) {
+      return res.status(401).json({ message: "Vui lòng đăng nhập" });
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ message: "Không tìm thấy đơn hàng" });
+    }
+
+    if (order.userId.toString() !== userId) {
+      return res
+        .status(403)
+        .json({ message: "Bạn không thể truy cập đơn hàng này" });
+    }
+
+    if (order.paymentMethod !== "payos") {
+      return res
+        .status(400)
+        .json({ message: "Đơn hàng này không sử dụng PayOS" });
+    }
+
+    const numericOrderCode = (() => {
+      if (typeof orderCode === "number" && Number.isFinite(orderCode)) {
+        return orderCode;
+      }
+      if (typeof orderCode === "string" && orderCode.trim()) {
+        const parsed = Number(orderCode.trim());
+        return Number.isFinite(parsed) ? parsed : null;
+      }
+      return order.payosPayment?.orderCode ?? null;
+    })();
+
+    if (!numericOrderCode) {
+      return res.status(400).json({
+        message: "Không tìm thấy mã PayOS của đơn hàng để đồng bộ.",
+      });
+    }
+
+    const payos = getPayOSClient();
+    const link = await payos.paymentRequests.get(numericOrderCode);
+    const { previousStatus, nextStatus } = updateOrderFromPayOSLink(
+      order,
+      link
+    );
+
+    let shouldNotify = false;
+    if (
+      hasStatus(PAYOS_SUCCESS_STATUSES, nextStatus) &&
+      !hasStatus(PAYOS_SUCCESS_STATUSES, previousStatus)
+    ) {
+      order.payosPayment.lastNotificationStatus = nextStatus;
+      shouldNotify = true;
+    }
+
+    await order.save();
+
+    if (shouldNotify) {
+      await sendPayosSuccessNotifications(order);
+    }
+
+    return res.json({
+      message: "Đã đồng bộ trạng thái thanh toán PayOS.",
+      order,
+      payosStatus: order.payosPayment?.status || null,
+      statusChanged: previousStatus !== nextStatus,
+    });
+  } catch (err) {
+    console.error("syncPayosPaymentStatus error:", err);
+    return res.status(500).json({
+      message:
+        err?.message ||
+        "Không đồng bộ được trạng thái PayOS. Vui lòng thử lại.",
+    });
+  }
+};

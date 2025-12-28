@@ -7,21 +7,22 @@ import PrintIcon from "@mui/icons-material/Print";
 import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
 import ShoppingBagIcon from "@mui/icons-material/ShoppingBag";
 import {
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  Container,
-  Divider,
-  Paper,
-  Stack,
-  Typography,
-  useTheme,
+    Avatar,
+    Box,
+    Button,
+    Chip,
+    Container,
+    Divider,
+    Paper,
+    Stack,
+    Typography,
+    useTheme,
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import { useEffect, useState, type JSX } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { orderService, type OrderDetailResponse } from "../../api/orderService";
+import { paymentService } from "../../api/paymentService";
 import type { OrderItem } from "../../types/Order";
 
 export default function CheckoutSuccessPage(): JSX.Element {
@@ -52,6 +53,39 @@ export default function CheckoutSuccessPage(): JSX.Element {
       }
     })();
   }, [location.state, orderId]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if ((params.get("method") || "").toLowerCase() !== "payos") return;
+    if (!orderId) return;
+
+    const rawStatus = (params.get("status") || "").toUpperCase();
+    if (!rawStatus) return;
+    if (!["PAID", "PROCESSING", "COMPLETED", "SUCCESS", "SUCCEEDED"].includes(rawStatus)) {
+      return;
+    }
+
+    const orderCodeParam = params.get("orderCode");
+    const parsedOrderCode = orderCodeParam ? Number(orderCodeParam) : undefined;
+    const normalizedOrderCode =
+      typeof parsedOrderCode === "number" && Number.isFinite(parsedOrderCode)
+        ? parsedOrderCode
+        : undefined;
+
+    void (async () => {
+      try {
+        const response = await paymentService.syncPayosStatus(
+          orderId,
+          normalizedOrderCode ? { orderCode: normalizedOrderCode } : undefined
+        );
+        if (response?.order) {
+          setOrder(response.order);
+        }
+      } catch (err) {
+        console.error("CheckoutSuccess PayOS sync error:", err);
+      }
+    })();
+  }, [location.search, orderId]);
 
   if (!order) {
     return (

@@ -15,34 +15,34 @@ import SatelliteAltOutlinedIcon from '@mui/icons-material/SatelliteAltOutlined';
 import SavingsOutlinedIcon from '@mui/icons-material/SavingsOutlined';
 import ShoppingBagOutlinedIcon from '@mui/icons-material/ShoppingBagOutlined';
 import {
-  Alert,
-  Avatar,
-  Box,
-  Button,
-  Checkbox,
-  Chip,
-  CircularProgress,
-  Container,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  FormControl,
-  FormControlLabel,
-  IconButton,
-  InputLabel,
-  MenuItem,
-  Paper,
-  Radio,
-  RadioGroup,
-  Select,
-  Stack,
-  TextField,
-  ToggleButton,
-  ToggleButtonGroup,
-  Tooltip,
-  Typography
+    Alert,
+    Avatar,
+    Box,
+    Button,
+    Checkbox,
+    Chip,
+    CircularProgress,
+    Container,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogTitle,
+    Divider,
+    FormControl,
+    FormControlLabel,
+    IconButton,
+    InputLabel,
+    MenuItem,
+    Paper,
+    Radio,
+    RadioGroup,
+    Select,
+    Stack,
+    TextField,
+    ToggleButton,
+    ToggleButtonGroup,
+    Tooltip,
+    Typography
 } from "@mui/material";
 import Grid from "@mui/material/GridLegacy";
 import LinearProgress from "@mui/material/LinearProgress";
@@ -61,11 +61,11 @@ import { voucherService, type AppliedVoucherResult, type UserVoucher, type Vouch
 import { useAuth } from "../../context/AuthContext";
 import type { Address } from "../../types/User";
 import {
-  buildShippingSummary,
-  describeShippingMethod,
-  type SellerShippingContext,
-  type ShippingMethod,
-  type ShippingSummary
+    buildShippingSummary,
+    describeShippingMethod,
+    type SellerShippingContext,
+    type ShippingMethod,
+    type ShippingSummary
 } from "../../utils/shippingFee";
 
 const AI_IMAGE_ENDPOINT = "https://image.pollinations.ai/prompt/";
@@ -595,7 +595,17 @@ export default function CheckoutPage() {
 
   // Toggle: if true, produce a more detailed 'Địa chỉ cụ thể' (more parts kept)
   const [detailedAddressMode] = useState<boolean>(false);
-
+  const [coordLat, setCoordLat] = useState<string>(addressForm.lat ? String(addressForm.lat) : "");
+  const [coordLng, setCoordLng] = useState<string>(addressForm.lng ? String(addressForm.lng) : "");
+  const [coordsDirty, setCoordsDirty] = useState<boolean>(false);
+  const [useRawCoords, setUseRawCoords] = useState<boolean>(false);
+  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
+  const [loadingNearby, setLoadingNearby] = useState(false);
+  const [nearbyRadius, setNearbyRadius] = useState<number>(500);
+  const [mapStyle, setMapStyle] = useState<"m" | "y" | "s">("m");
+  const [dialogMapStyle, setDialogMapStyle] = useState<"m" | "y" | "s">("m");
+  const [googleFullAddress, setGoogleFullAddress] = useState<string>("");
+  
   const sellerShippingContext = useMemo<SellerShippingContext[]>(() => {
     if (!items.length) return [];
     const grouped = new Map<string, SellerShippingContext>();
@@ -637,11 +647,11 @@ export default function CheckoutPage() {
   const shippingDestination = useMemo(() => {
     const hasProvince = Boolean(addressForm.province);
     const latValue =
-      typeof addressForm.lat === "number" && !Number.isNaN(addressForm.lat)
+      !coordsDirty && typeof addressForm.lat === "number" && !Number.isNaN(addressForm.lat)
         ? addressForm.lat
         : undefined;
     const lngValue =
-      typeof addressForm.lng === "number" && !Number.isNaN(addressForm.lng)
+      !coordsDirty && typeof addressForm.lng === "number" && !Number.isNaN(addressForm.lng)
         ? addressForm.lng
         : undefined;
 
@@ -654,7 +664,7 @@ export default function CheckoutPage() {
       lat: latValue,
       lng: lngValue,
     };
-  }, [addressForm.province, addressForm.lat, addressForm.lng]);
+  }, [addressForm.province, addressForm.lat, addressForm.lng, coordsDirty]);
 
   const shippingSummary = useMemo<ShippingSummary>(() => {
     if (!sellerShippingContext.length) {
@@ -682,12 +692,17 @@ export default function CheckoutPage() {
     (option) => option.value === shippingMethod,
   );
   const shippingMethodTitle = currentShippingOption?.title ?? shippingMethod;
-  const requiresAddressForShipping =
-    (shippingMethod === "standard" || shippingMethod === "express") &&
-    !(shippingDestination?.province ||
-      (shippingDestination?.lat != null && shippingDestination?.lng != null));
+  const needsAddressDetails = shippingMethod === "standard" || shippingMethod === "express";
+  const hasAddressForShipping = Boolean(
+    shippingDestination?.province ||
+      (shippingDestination?.lat != null && shippingDestination?.lng != null),
+  );
+  const requiresAddressForShipping = needsAddressDetails && !hasAddressForShipping;
+  const waitingForFreshCoords = !requiresAddressForShipping && coordsDirty;
   const shippingDiscount =
-    freeShippingVoucherApplied && !requiresAddressForShipping ? shippingFee : 0;
+    freeShippingVoucherApplied && !requiresAddressForShipping && !waitingForFreshCoords
+      ? shippingFee
+      : 0;
   const effectiveShippingFee = Math.max(0, shippingFee - shippingDiscount);
   const shippingFeeLabel = requiresAddressForShipping
     ? "Chưa xác định"
@@ -696,6 +711,9 @@ export default function CheckoutPage() {
       : freeShippingVoucherApplied
         ? "Được freeship"
         : "Miễn phí";
+  const shippingDisplayLabel = waitingForFreshCoords
+    ? "Đang cập nhật..."
+    : shippingFeeLabel;
   const rushDistanceOverride =
     shippingMethod === "rush"
       ? shippingSummary.breakdown.find(
@@ -722,7 +740,7 @@ export default function CheckoutPage() {
   const voucherValueDisplay = (() => {
     if (!selectedVoucher) return "Chưa áp dụng";
     if (selectedVoucher.freeShipping) {
-      if (requiresAddressForShipping) return "Freeship (chờ địa chỉ)";
+      if (requiresAddressForShipping || waitingForFreshCoords) return "Freeship (chờ địa chỉ)";
       return shippingDiscount > 0 ? `-${formatCurrency(shippingDiscount)}` : "Freeship";
     }
     return `-${formatCurrency(voucherDiscount)}`;
@@ -731,7 +749,7 @@ export default function CheckoutPage() {
     ? selectedVoucher.freeShipping
       ? shippingDiscount > 0
         ? `Tiết kiệm phí ship ${formatCurrency(shippingDiscount)}`
-        : "Sẽ miễn phí khi có địa chỉ"
+        : "Sẽ miễn phí khi xác nhận địa chỉ"
       : selectedVoucher.code
     : "Thêm voucher để tiết kiệm";
 
@@ -759,7 +777,7 @@ export default function CheckoutPage() {
     },
     {
       label: "Vận chuyển",
-      value: requiresAddressForShipping ? "Chờ địa chỉ" : shippingFeeLabel,
+      value: requiresAddressForShipping ? "Chờ địa chỉ" : shippingDisplayLabel,
       caption: shippingMethodTitle,
       icon: LocalShippingOutlinedIcon,
       color: "#38bdf8",
@@ -772,19 +790,28 @@ export default function CheckoutPage() {
     { label: "Thanh toán", status: "next" },
   ];
 
+  const shippingNoticeText = requiresAddressForShipping
+    ? "Vui lòng hoàn tất tỉnh/thành để ước tính phí."
+    : waitingForFreshCoords
+      ? "Đang cập nhật phí dựa trên địa chỉ mới..."
+      : `Ước tính phí: ${shippingFeeLabel}`;
+  const shippingNoticeColor =
+    requiresAddressForShipping || waitingForFreshCoords ? "warning.main" : "text.secondary";
+  const shippingValueColor =
+    requiresAddressForShipping || waitingForFreshCoords
+      ? "warning.main"
+      : effectiveShippingFee > 0
+        ? "text.primary"
+        : "success.main";
+  const shippingSummaryLabel = requiresAddressForShipping ? "Cập nhật địa chỉ" : shippingDisplayLabel;
+  const pendingTotalMessage = waitingForFreshCoords
+    ? "Địa chỉ vừa thay đổi, phí ship và tổng tiền sẽ tự cập nhật sau khi bạn xác nhận toạ độ mới."
+    : null;
+
   const [provinces, setProvinces] = useState<string[]>([]);
   const [districts, setDistricts] = useState<string[]>([]);
   const [wards, setWards] = useState<string[]>([]);
 
-  const [coordLat, setCoordLat] = useState<string>(addressForm.lat ? String(addressForm.lat) : "");
-  const [coordLng, setCoordLng] = useState<string>(addressForm.lng ? String(addressForm.lng) : "");
-  const [useRawCoords, setUseRawCoords] = useState<boolean>(false);
-  const [nearbyPlaces, setNearbyPlaces] = useState<NearbyPlace[]>([]);
-  const [loadingNearby, setLoadingNearby] = useState(false);
-  const [nearbyRadius, setNearbyRadius] = useState<number>(500);
-  const [mapStyle, setMapStyle] = useState<"m" | "y" | "s">("m");
-  const [dialogMapStyle, setDialogMapStyle] = useState<"m" | "y" | "s">("m");
-  const [googleFullAddress, setGoogleFullAddress] = useState<string>("");
 
   const mapLayerOptions = useMemo(
     () => [
@@ -875,6 +902,7 @@ export default function CheckoutPage() {
       setAddressForm({ ...found });
       setCoordLat(found.lat ? String(found.lat) : "");
       setCoordLng(found.lng ? String(found.lng) : "");
+      setCoordsDirty(false);
       if (found.province) {
         (async () => {
           const districtsList = await addressService.getDistricts(found.province);
@@ -907,6 +935,7 @@ export default function CheckoutPage() {
         setAddressForm(a => ({ ...a, lat, lng, isPinned: true }));
         setCoordLat(String(lat));
         setCoordLng(String(lng));
+        setCoordsDirty(false);
         toast.success("✅ Đã ghim vị trí trên bản đồ");
 
         (async () => {
@@ -962,6 +991,7 @@ export default function CheckoutPage() {
             setAddressForm(a => ({ ...a, lat, lng, isPinned: true }));
             setCoordLat(String(lat));
             setCoordLng(String(lng));
+            setCoordsDirty(false);
             toast.success("✅ Đã cập nhật vị trí ghim");
             void fetchNearbyPlaces(lat, lng, nearbyRadius);
             void autofillDetailFromGoogle(lat, lng);
@@ -1107,6 +1137,7 @@ export default function CheckoutPage() {
     setGoogleFullAddress("");
     setCoordLat(String(place.lat));
     setCoordLng(String(place.lng));
+    setCoordsDirty(false);
     setSelectedAddressId("new");
     toast.success(`✅ Đã chọn ${detail}`);
   };
@@ -1116,6 +1147,7 @@ export default function CheckoutPage() {
     setAddressForm((a) => ({ ...a, lat: place.lat, lng: place.lng, isPinned: true }));
     setCoordLat(String(place.lat));
     setCoordLng(String(place.lng));
+    setCoordsDirty(false);
     toast.info(`🔎 Đã di chuyển tới ${detail}`);
   };
 
@@ -1157,6 +1189,7 @@ export default function CheckoutPage() {
         setAddressForm(a => ({ ...a, lat, lng, isPinned: true }));
         setCoordLat(String(lat));
         setCoordLng(String(lng));
+        setCoordsDirty(false);
         toast.success('✅ Đã tìm và ghim vị trí trên bản đồ');
         // fetch nearby places automatically after forward geocode
         void fetchNearbyPlaces(lat, lng, nearbyRadius);
@@ -1194,6 +1227,7 @@ export default function CheckoutPage() {
     plusCode?: string,
   ) => {
     try {
+      const hasFreshCoords = typeof lat === "number" && typeof lng === "number";
       console.debug("[Geocoded]", { province: geocodedProvince, district: geocodedDistrict, ward: geocodedWard, plusCode });
       
       if (!geocodedProvince && !geocodedDistrict && !geocodedWard) {
@@ -1213,6 +1247,9 @@ export default function CheckoutPage() {
         setGoogleFullAddress("");
         setCoordLat(typeof lat === "number" ? String(lat) : addressForm.lat ? String(addressForm.lat) : "");
         setCoordLng(typeof lng === "number" ? String(lng) : addressForm.lng ? String(addressForm.lng) : "");
+        if (hasFreshCoords) {
+          setCoordsDirty(false);
+        }
         toast.info("ℹ️ Không thể xác định tỉnh/quận/phường. Vui lòng chọn thủ công từ danh sách.");
         return;
       }
@@ -1235,6 +1272,9 @@ export default function CheckoutPage() {
         setCoordLat(typeof lat === "number" ? String(lat) : addressForm.lat ? String(addressForm.lat) : "");
         setCoordLng(typeof lng === "number" ? String(lng) : addressForm.lng ? String(addressForm.lng) : "");
         setSelectedAddressId("new");
+        if (hasFreshCoords) {
+          setCoordsDirty(false);
+        }
         toast.info("ℹ️ Đã cập nhật mô tả địa chỉ và toạ độ (không thay đổi Tỉnh/Quận/Phường)");
         return;
       }
@@ -1276,6 +1316,9 @@ export default function CheckoutPage() {
       setCoordLng(typeof lng === "number" ? String(lng) : addressForm.lng ? String(addressForm.lng) : "");
 
       setSelectedAddressId("new");
+      if (hasFreshCoords) {
+        setCoordsDirty(false);
+      }
 
       if (matched.confidence === 1) {
         toast.success("✅ Đã tự động điền đầy đủ Tỉnh/Quận/Phường và địa chỉ chi tiết");
@@ -1349,6 +1392,9 @@ export default function CheckoutPage() {
       };
     });
     setGoogleFullAddress(googleResult.formatted || googleResult.raw?.formatted_address || "");
+    if (typeof lat === "number" && typeof lng === "number") {
+      setCoordsDirty(false);
+    }
     return true;
   }, [detailedAddressMode, fetchGoogleAddress, useRawCoords]);
 
@@ -1377,6 +1423,7 @@ export default function CheckoutPage() {
         setAddressForm(a => ({ ...a, lat: latitude, lng: longitude, isPinned: true }));
         setCoordLat(String(latitude));
         setCoordLng(String(longitude));
+        setCoordsDirty(false);
         toast.success(`✅ Đã lấy vị trí hiện tại (Độ chính xác: ${accuracy.toFixed(0)}m)`);
 
         (async () => {
@@ -1442,6 +1489,7 @@ export default function CheckoutPage() {
 
     setAddressForm(a => ({ ...a, lat, lng, isPinned: true }));
     toast.info(`⏳ Áp dụng toạ độ: ${lat.toFixed(6)}, ${lng.toFixed(6)} ...`);
+    setCoordsDirty(false);
 
     if (useRawCoords) {
       setAddressForm(a => ({ ...a, detail: `Toạ độ gốc: ${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
@@ -1580,6 +1628,9 @@ export default function CheckoutPage() {
         ? items[0].productId
         : items[0].productId._id
       : undefined;
+    const shippingAddressPayload: Address = coordsDirty
+      ? { ...addressForm, lat: undefined, lng: undefined, isPinned: false }
+      : { ...addressForm };
     const payload: CheckoutPayload = {
       userId: user?._id ? String(user._id) : String(user?.id),
       fullName: user.name || "",
@@ -1587,11 +1638,11 @@ export default function CheckoutPage() {
       address: finalAddress,
       paymentMethod,
       items,
-      total: totalPrice,
+      total: finalTotal,
       voucherCode: selectedVoucher?.code,
       mode: cartId ? "cart" : "buy-now",
       productId: resolvedProductId,
-      shippingAddress: { ...addressForm },
+      shippingAddress: shippingAddressPayload,
       shippingOption: {
         method: shippingMethod,
         rushDistanceKm: rushDistanceOverride,
@@ -2087,8 +2138,8 @@ export default function CheckoutPage() {
                       })}
                     </Grid>
                   </RadioGroup>
-                  <Typography variant="body2" color={requiresAddressForShipping ? "warning.main" : "text.secondary"} sx={{ mt: 2 }}>
-                    {requiresAddressForShipping ? "Vui lòng hoàn tất tỉnh/thành để ước tính phí." : `Ước tính phí: ${shippingFeeLabel}`}
+                  <Typography variant="body2" color={shippingNoticeColor} sx={{ mt: 2 }}>
+                    {shippingNoticeText}
                   </Typography>
                 </Paper>
 
@@ -2221,7 +2272,7 @@ export default function CheckoutPage() {
                         </Typography>
                         <Typography fontWeight={600} color={selectedVoucher.freeShipping ? "success.main" : "error"}>
                           {selectedVoucher.freeShipping
-                            ? requiresAddressForShipping
+                            ? (requiresAddressForShipping || waitingForFreshCoords)
                               ? "Chờ địa chỉ"
                               : shippingDiscount > 0
                                 ? `-${formatCurrency(shippingDiscount)}`
@@ -2232,10 +2283,8 @@ export default function CheckoutPage() {
                     )}
                     <Box sx={{ display: "flex", justifyContent: "space-between" }}>
                       <Typography variant="body2" color="text.secondary">Phí vận chuyển ({shippingMethodTitle})</Typography>
-                      <Typography fontWeight={600} color={
-                        requiresAddressForShipping ? "warning.main" : effectiveShippingFee > 0 ? "text.primary" : "success.main"
-                      }>
-                        {requiresAddressForShipping ? "Cập nhật địa chỉ" : shippingFeeLabel}
+                      <Typography fontWeight={600} color={shippingValueColor}>
+                        {shippingSummaryLabel}
                       </Typography>
                     </Box>
                   </Stack>
@@ -2258,6 +2307,11 @@ export default function CheckoutPage() {
                     <Typography variant="caption" color="text.secondary">
                       Đã gồm ưu đãi và phí vận chuyển
                     </Typography>
+                    {pendingTotalMessage && (
+                      <Typography variant="caption" color="warning.main">
+                        {pendingTotalMessage}
+                      </Typography>
+                    )}
                   </Box>
 
                   <Button
@@ -2397,6 +2451,9 @@ export default function CheckoutPage() {
                                   setSelectedAddressId("new");
                                 }
                                 setAddressForm(a);
+                                setCoordLat(a.lat ? String(a.lat) : "");
+                                setCoordLng(a.lng ? String(a.lng) : "");
+                                setCoordsDirty(false);
                               }}
                             >
                               <Stack spacing={0.5}>
@@ -2417,6 +2474,9 @@ export default function CheckoutPage() {
                                     if (a.id) {
                                       setSelectedAddressId(a.id);
                                       setAddressForm(a);
+                                      setCoordLat(a.lat ? String(a.lat) : "");
+                                      setCoordLng(a.lng ? String(a.lng) : "");
+                                      setCoordsDirty(false);
                                     }
                                   }}>
                                     Sửa
@@ -2426,6 +2486,9 @@ export default function CheckoutPage() {
                                     if (a.id) {
                                       setSelectedAddressId(a.id);
                                       setAddressForm(a);
+                                      setCoordLat(a.lat ? String(a.lat) : "");
+                                      setCoordLng(a.lng ? String(a.lng) : "");
+                                      setCoordsDirty(false);
                                       setAddressDialogOpen(false);
                                     }
                                   }}>
@@ -2467,6 +2530,9 @@ export default function CheckoutPage() {
                         type: "home",
                         isDefault: false,
                       });
+                      setCoordsDirty(true);
+                      setCoordLat("");
+                      setCoordLng("");
                     }}
                     sx={{ textTransform: "none", fontWeight: 700 }}
                   >
@@ -2497,7 +2563,17 @@ export default function CheckoutPage() {
                       <Grid item xs={12} sm={4}>
                         <FormControl fullWidth>
                           <InputLabel>Tỉnh/Thành</InputLabel>
-                          <Select value={addressForm.province} label="Tỉnh/Thành" onChange={async (e) => { const province = e.target.value; setAddressForm(s => ({ ...s, province, district: '', ward: '' })); const districtsList = await addressService.getDistricts(province); setDistricts(districtsList); }}>
+                          <Select
+                            value={addressForm.province}
+                            label="Tỉnh/Thành"
+                            onChange={async (e) => {
+                              const province = e.target.value;
+                              setAddressForm((s) => ({ ...s, province, district: '', ward: '' }));
+                              setCoordsDirty(true);
+                              const districtsList = await addressService.getDistricts(province);
+                              setDistricts(districtsList);
+                            }}
+                          >
                             <MenuItem value="">-- Chọn Tỉnh/Thành --</MenuItem>
                             {provinces.map(p => <MenuItem key={p} value={p}>{p}</MenuItem>)}
                           </Select>
@@ -2506,7 +2582,17 @@ export default function CheckoutPage() {
                       <Grid item xs={12} sm={4}>
                         <FormControl fullWidth disabled={!addressForm.province}>
                           <InputLabel>Quận/Huyện</InputLabel>
-                          <Select value={addressForm.district} label="Quận/Huyện" onChange={async (e) => { const d = e.target.value; setAddressForm(s => ({ ...s, district: d, ward: '' })); const wardsList = await addressService.getWards(addressForm.province, d); setWards(wardsList); }}>
+                          <Select
+                            value={addressForm.district}
+                            label="Quận/Huyện"
+                            onChange={async (e) => {
+                              const d = e.target.value;
+                              setAddressForm((s) => ({ ...s, district: d, ward: '' }));
+                              setCoordsDirty(true);
+                              const wardsList = await addressService.getWards(addressForm.province, d);
+                              setWards(wardsList);
+                            }}
+                          >
                             <MenuItem value="">-- Chọn Quận/Huyện --</MenuItem>
                             {districts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
                           </Select>
@@ -2515,7 +2601,14 @@ export default function CheckoutPage() {
                       <Grid item xs={12} sm={4}>
                         <FormControl fullWidth disabled={!addressForm.district}>
                           <InputLabel>Phường/Xã</InputLabel>
-                          <Select value={addressForm.ward} label="Phường/Xã" onChange={e => setAddressForm(s => ({ ...s, ward: e.target.value }))}>
+                          <Select
+                            value={addressForm.ward}
+                            label="Phường/Xã"
+                            onChange={(e) => {
+                              setAddressForm((s) => ({ ...s, ward: e.target.value }));
+                              setCoordsDirty(true);
+                            }}
+                          >
                             <MenuItem value="">-- Chọn Phường/Xã --</MenuItem>
                             {wards.map(w => <MenuItem key={w} value={w}>{w}</MenuItem>)}
                           </Select>
@@ -2526,9 +2619,10 @@ export default function CheckoutPage() {
                           label="Địa chỉ cụ thể"
                           placeholder="Ví dụ: 7P26+GH Quận 1, Thành phố Hồ Chí Minh"
                           value={addressForm.detail}
-                          onChange={e => {
+                          onChange={(e) => {
                             setGoogleFullAddress("");
-                            setAddressForm(s => ({ ...s, detail: e.target.value }));
+                            setAddressForm((s) => ({ ...s, detail: e.target.value }));
+                            setCoordsDirty(true);
                           }}
                           onBlur={() => {
                             const raw = addressForm.detail;
@@ -2548,6 +2642,7 @@ export default function CheckoutPage() {
                               ? formatDetailedAddress(sanitized, addressForm.province, addressForm.district, addressForm.ward)
                               : formatSpecificAddress(sanitized);
                             setGoogleFullAddress("");
+                            setCoordsDirty(true);
                             setAddressForm(s => ({ ...s, detail: formatted || sanitized }));
                           }}
                           fullWidth

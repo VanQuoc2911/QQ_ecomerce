@@ -262,6 +262,28 @@ export default function OrderDetail() {
     const orderCode = params.get("orderCode");
     const isCancelled = params.get("cancel") === "true";
     const descriptor = orderCode ? ` (Mã PayOS: ${orderCode})` : "";
+    const parsedOrderCode = orderCode ? Number(orderCode) : undefined;
+    const normalizedOrderCode =
+      typeof parsedOrderCode === "number" && Number.isFinite(parsedOrderCode)
+        ? parsedOrderCode
+        : undefined;
+
+    const syncPayosStatus = (reason: string) => {
+      if (!id) return;
+      void (async () => {
+        try {
+          const response = await paymentService.syncPayosStatus(
+            id,
+            normalizedOrderCode ? { orderCode: normalizedOrderCode } : undefined
+          );
+          if (response?.order) {
+            setOrder(response.order);
+          }
+        } catch (syncErr) {
+          console.error(`OrderDetail PayOS sync (${reason}) error:`, syncErr);
+        }
+      })();
+    };
 
     const redirectToProductDetail = () => {
       const itemList = (order?.products?.length ? order.products : order?.items) ?? [];
@@ -292,18 +314,22 @@ export default function OrderDetail() {
 
     let redirected = false;
 
-    if (rawStatus === "PAID" || rawStatus === "PROCESSING") {
+    if (["PAID", "PROCESSING", "COMPLETED", "SUCCESS", "SUCCEEDED"].includes(rawStatus)) {
       toast.success(`PayOS đã ghi nhận thanh toán${descriptor}. Hệ thống sẽ đồng bộ trạng thái trong giây lát.`);
+      syncPayosStatus("success");
     } else if (rawStatus === "CANCELLED" || rawStatus === "CANCEL" || isCancelled) {
       toast.info(`Bạn đã hủy thanh toán PayOS${descriptor}. Đang đưa bạn về trang sản phẩm để thanh toán lại.`);
+      syncPayosStatus("cancel");
       redirected = redirectToProductDetail();
       if (!redirected) {
         toast.info("Không xác định được sản phẩm để chuyển hướng. Vui lòng thử lại từ danh sách đơn hàng.");
       }
     } else if (rawStatus === "FAILED" || rawStatus === "EXPIRED") {
       toast.error(`Giao dịch PayOS không thành công${descriptor}. Vui lòng thử lại hoặc chọn phương thức khác.`);
+      syncPayosStatus("failure");
     } else if (rawStatus) {
       toast.info(`Trạng thái PayOS: ${rawStatus}${descriptor}`);
+      syncPayosStatus("status");
     } else {
       toast.info(`Đã thoát khỏi luồng PayOS${descriptor}.`);
     }
@@ -312,7 +338,7 @@ export default function OrderDetail() {
       void fetchOrder({ silent: true });
       navigate(location.pathname, { replace: true });
     }
-  }, [fetchOrder, location.pathname, location.search, navigate, order]);
+  }, [fetchOrder, id, location.pathname, location.search, navigate, order]);
 
   if (loading) {
     return (

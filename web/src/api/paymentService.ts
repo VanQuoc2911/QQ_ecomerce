@@ -1,4 +1,5 @@
 import { api } from "./axios";
+import type { OrderDetailResponse } from "./orderService";
 
 export interface PayosLinkResponse {
   checkoutUrl: string;
@@ -17,11 +18,32 @@ export interface BankingResultResponse {
   deadline?: string;
 }
 
+export interface PayosSyncResponse {
+  message: string;
+  order: OrderDetailResponse;
+  payosStatus?: string | null;
+  statusChanged?: boolean;
+}
+
 export const paymentService = {
   createPayosLink: async (orderId: string): Promise<PayosLinkResponse> => {
     const { data } = await api.post<PayosLinkResponse>(
       "/api/payment/payos/create-link",
       { orderId }
+    );
+    return data;
+  },
+  syncPayosStatus: async (
+    orderId: string,
+    options?: { orderCode?: number }
+  ): Promise<PayosSyncResponse> => {
+    const payload = {
+      orderId,
+      ...(options?.orderCode ? { orderCode: options.orderCode } : {}),
+    };
+    const { data } = await api.post<PayosSyncResponse>(
+      "/api/payment/payos/sync-status",
+      payload
     );
     return data;
   },
